@@ -1,0 +1,915 @@
+--[[
+    ======================================================
+     Rwonom Hub UI Library
+     مكتبة واجهة كلاسيكية (أحمر/أسود) - Lua / Roblox
+     هذا الملف مكتبة فقط، لا يحتوي على loadstring بداخله.
+     طريقة الاستخدام تحت في التعليقات بآخر الملف.
+    ======================================================
+]]
+
+local TweenService   = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local Players         = game:GetService("Players")
+local RunService      = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+local Library = {}
+Library.__index = Library
+Library.Lang = "ar"
+Library.OpenKeybind = nil
+
+-- ==================== الألوان (بالاسم لا Color3 مباشر) ====================
+local Colors = {
+    Red        = Color3.fromRGB(200, 30, 40),
+    DarkRed    = Color3.fromRGB(120, 15, 20),
+    Black      = Color3.fromRGB(15, 15, 15),
+    White      = Color3.fromRGB(240, 240, 240),
+    Gray       = Color3.fromRGB(60, 60, 60),
+    Green      = Color3.fromRGB(40, 180, 90),
+    Blue       = Color3.fromRGB(40, 110, 200),
+    Purple     = Color3.fromRGB(140, 60, 200),
+    Gold       = Color3.fromRGB(210, 170, 60),
+}
+
+-- ==================== نصوص اللغة ====================
+local Strings = {
+    ar = {
+        Confirm = "تأكيد",
+        Cancel  = "إلغاء",
+        CloseTitle = "إغلاق الواجهة",
+        CloseBody  = "هل تريد إغلاق الواجهة؟",
+        Yes = "نعم",
+        No  = "لا",
+        Open = "فتح",
+    },
+    en = {
+        Confirm = "Confirm",
+        Cancel  = "Cancel",
+        CloseTitle = "Close UI",
+        CloseBody  = "Are you sure you want to close?",
+        Yes = "Yes",
+        No  = "No",
+        Open = "Open",
+    },
+}
+
+function Library:SetLanguage(lang)
+    if Strings[lang] then
+        Library.Lang = lang
+    end
+end
+
+local function T(key)
+    return Strings[Library.Lang][key] or key
+end
+
+-- ==================== الصوت الكلاسيكي ====================
+local ClickSoundId = "rbxassetid://6042053626" -- صوت كلاسيكي، يمكن تغييره
+local function PlayClick()
+    local snd = Instance.new("Sound")
+    snd.SoundId = ClickSoundId
+    snd.Volume = 0.6
+    snd.Parent = PlayerGui
+    snd:Play()
+    game:GetService("Debris"):AddItem(snd, 2)
+end
+
+-- ==================== أدوات مساعدة ====================
+local function New(class, props, children)
+    local inst = Instance.new(class)
+    for k, v in pairs(props or {}) do
+        inst[k] = v
+    end
+    for _, c in ipairs(children or {}) do
+        c.Parent = inst
+    end
+    return inst
+end
+
+local function Tween(inst, props, time, style, dir)
+    local t = TweenService:Create(inst, TweenInfo.new(time or 0.25,
+        style or Enum.EasingStyle.Quart, dir or Enum.EasingDirection.Out), props)
+    t:Play()
+    return t
+end
+
+-- سحب بلمسة إصبع واحدة فقط (يتجاهل باقي الأصابع)
+local function MakeDraggable(handle, target, onDrag)
+    local dragging = false
+    local activeInput = nil
+    local dragStart, startPos
+
+    handle.InputBegan:Connect(function(input)
+        if dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            activeInput = input
+            dragStart = input.Position
+            startPos = target.Position
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input == activeInput then
+            local delta = input.Position - dragStart
+            local newPos = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+            target.Position = newPos
+            if onDrag then onDrag(newPos) end
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input == activeInput then
+            dragging = false
+            activeInput = nil
+        end
+    end)
+end
+
+-- سحب أفقي محصور داخل مسار (للسلايدر)
+local function MakeAxisDraggable(handle, track, onChange)
+    local dragging = false
+    local activeInput = nil
+
+    local function update(inputPos)
+        local rel = math.clamp((inputPos.X - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+        onChange(rel)
+    end
+
+    handle.InputBegan:Connect(function(input)
+        if dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            activeInput = input
+            update(input.Position)
+        end
+    end)
+
+    track.InputBegan:Connect(function(input)
+        if dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            activeInput = input
+            update(input.Position)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input == activeInput then
+            update(input.Position)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input == activeInput then
+            dragging = false
+            activeInput = nil
+        end
+    end)
+end
+
+-- ==================== نظام إنشاء النافذة (Window) ====================
+function Library:CreateWindow(config)
+    config = config or {}
+    local title    = config.Name or config.Title or "Rwonom Hub"
+    local subtitle = config.Description or config.Subtitle or ""
+    local themeName = config.Theme or "Red"
+    local theme = Colors[themeName] or Colors.Red
+    local size = config.Size or UDim2.fromOffset(586, 339)
+
+    local ScreenGui = New("ScreenGui", {
+        Name = "RwonomHub", ResetOnSpawn = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling, Parent = PlayerGui,
+    })
+
+    local MainFrame = New("Frame", {
+        Name = "MainFrame", Size = size, AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = Colors.Black,
+        BorderSizePixel = 0, ClipsDescendants = true, Parent = ScreenGui,
+    }, {
+        New("UICorner", { CornerRadius = UDim.new(0, 10) }),
+        New("UIStroke", { Color = theme, Thickness = 2, Transparency = 0.15 }),
+    })
+
+    -- طبقة لمعان/نعومة (Gloss overlay)
+    local Gloss = New("Frame", {
+        Name = "Gloss", BackgroundColor3 = Color3.new(1, 1, 1),
+        BackgroundTransparency = 0.94, Size = UDim2.fromScale(1, 0.5),
+        Position = UDim2.fromScale(0, 0), Parent = MainFrame, ZIndex = 5,
+    }, {
+        New("UIGradient", {
+            Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 0.2),
+                NumberSequenceKeypoint.new(1, 1),
+            }),
+            Rotation = 90,
+        }),
+    })
+
+    -- شريط العنوان
+    local TitleBar = New("Frame", {
+        Name = "TitleBar", Size = UDim2.new(1, 0, 0, 46),
+        BackgroundColor3 = Colors.DarkRed, BorderSizePixel = 0, Parent = MainFrame,
+    }, {
+        New("UICorner", { CornerRadius = UDim.new(0, 10) }),
+    })
+
+    New("TextLabel", {
+        Name = "Title", Size = UDim2.new(1, -80, 0, 22), Position = UDim2.new(0, 14, 0, 4),
+        BackgroundTransparency = 1, Text = title, TextColor3 = Colors.White,
+        Font = Enum.Font.GothamBold, TextSize = 16, TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = TitleBar,
+    })
+    New("TextLabel", {
+        Name = "Subtitle", Size = UDim2.new(1, -80, 0, 16), Position = UDim2.new(0, 14, 0, 24),
+        BackgroundTransparency = 1, Text = subtitle, TextColor3 = Color3.fromRGB(200, 190, 190),
+        Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = TitleBar,
+    })
+
+    MakeDraggable(TitleBar, MainFrame)
+
+    -- زر الإغلاق (X) + نافذة التأكيد
+    local CloseBtn = New("TextButton", {
+        Name = "CloseBtn", Size = UDim2.fromOffset(28, 28), Position = UDim2.new(1, -36, 0, 9),
+        BackgroundColor3 = Colors.Red, Text = "X", TextColor3 = Colors.White,
+        Font = Enum.Font.GothamBold, TextSize = 14, Parent = TitleBar,
+    }, { New("UICorner", { CornerRadius = UDim.new(0, 6) }) })
+
+    local ConfirmOverlay = New("Frame", {
+        Name = "ConfirmOverlay", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 0.35,
+        BackgroundColor3 = Color3.new(0, 0, 0), Visible = false, ZIndex = 50, Parent = MainFrame,
+    })
+    local ConfirmBox = New("Frame", {
+        Size = UDim2.fromOffset(240, 110), AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = Colors.Black,
+        ZIndex = 51, Parent = ConfirmOverlay,
+    }, {
+        New("UICorner", { CornerRadius = UDim.new(0, 8) }),
+        New("UIStroke", { Color = theme, Thickness = 1.5 }),
+    })
+    New("TextLabel", {
+        Size = UDim2.new(1, -16, 0, 22), Position = UDim2.new(0, 8, 0, 8),
+        BackgroundTransparency = 1, Text = T("CloseTitle"), TextColor3 = Colors.White,
+        Font = Enum.Font.GothamBold, TextSize = 14, ZIndex = 52, Parent = ConfirmBox,
+    })
+    New("TextLabel", {
+        Size = UDim2.new(1, -16, 0, 30), Position = UDim2.new(0, 8, 0, 30),
+        BackgroundTransparency = 1, Text = T("CloseBody"), TextColor3 = Color3.fromRGB(210, 210, 210),
+        Font = Enum.Font.Gotham, TextSize = 12, TextWrapped = true, ZIndex = 52, Parent = ConfirmBox,
+    })
+    local YesBtn = New("TextButton", {
+        Size = UDim2.fromOffset(90, 28), Position = UDim2.new(0, 16, 1, -38),
+        BackgroundColor3 = Colors.Red, Text = T("Yes"), TextColor3 = Colors.White,
+        Font = Enum.Font.GothamBold, TextSize = 13, ZIndex = 52, Parent = ConfirmBox,
+    }, { New("UICorner", { CornerRadius = UDim.new(0, 6) }) })
+    local NoBtn = New("TextButton", {
+        Size = UDim2.fromOffset(90, 28), Position = UDim2.new(1, -106, 1, -38),
+        BackgroundColor3 = Colors.Gray, Text = T("No"), TextColor3 = Colors.White,
+        Font = Enum.Font.GothamBold, TextSize = 13, ZIndex = 52, Parent = ConfirmBox,
+    }, { New("UICorner", { CornerRadius = UDim.new(0, 6) }) })
+
+    CloseBtn.MouseButton1Click:Connect(function()
+        PlayClick()
+        ConfirmOverlay.Visible = true
+    end)
+    NoBtn.MouseButton1Click:Connect(function()
+        PlayClick()
+        ConfirmOverlay.Visible = false
+    end)
+    YesBtn.MouseButton1Click:Connect(function()
+        PlayClick()
+        ScreenGui:Destroy()
+    end)
+
+    -- شريط التبويبات (قابل للسحب يمين/يسار)
+    local TabBarHolder = New("Frame", {
+        Name = "TabBarHolder", Size = UDim2.new(1, 0, 0, 34), Position = UDim2.new(0, 0, 0, 46),
+        BackgroundColor3 = Colors.DarkRed, BorderSizePixel = 0, Parent = MainFrame,
+    })
+    local TabBar = New("ScrollingFrame", {
+        Name = "TabBar", Size = UDim2.new(1, -10, 1, 0), Position = UDim2.new(0, 5, 0, 0),
+        BackgroundTransparency = 1, ScrollingDirection = Enum.ScrollingDirection.X,
+        ScrollBarThickness = 3, ScrollBarImageColor3 = theme,
+        CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.X,
+        Parent = TabBarHolder,
+    }, {
+        New("UIListLayout", {
+            FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder,
+            Padding = UDim.new(0, 6), VerticalAlignment = Enum.VerticalAlignment.Center,
+        }),
+    })
+
+    -- منطقة المحتوى
+    local ContentHolder = New("Frame", {
+        Name = "ContentHolder", Size = UDim2.new(1, -12, 1, -90), Position = UDim2.new(0, 6, 0, 84),
+        BackgroundTransparency = 1, Parent = MainFrame,
+    })
+
+    -- منطقة الإشعارات (أسفل يمين)
+    local NotifyHolder = New("Frame", {
+        Name = "NotifyHolder", Size = UDim2.fromOffset(230, 300), AnchorPoint = Vector2.new(1, 1),
+        Position = UDim2.new(1, -14, 1, -14), BackgroundTransparency = 1, Parent = ScreenGui,
+    }, {
+        New("UIListLayout", {
+            VerticalAlignment = Enum.VerticalAlignment.Bottom, Padding = UDim.new(0, 6),
+            SortOrder = Enum.SortOrder.LayoutOrder,
+        }),
+    })
+
+    -- زر الفتح الافتراضي (أسفل يسار الشاشة)
+    local DefaultOpenBtn = New("TextButton", {
+        Name = "DefaultOpenBtn", Size = UDim2.fromOffset(70, 34),
+        Position = UDim2.new(0, 14, 1, -48), AnchorPoint = Vector2.new(0, 0),
+        BackgroundColor3 = Colors.Red, Text = T("Open"), TextColor3 = Colors.White,
+        Font = Enum.Font.GothamBold, TextSize = 13, Visible = false, Parent = ScreenGui,
+    }, { New("UICorner", { CornerRadius = UDim.new(0, 8) }) })
+
+    local Window = setmetatable({
+        ScreenGui = ScreenGui, MainFrame = MainFrame, Theme = theme,
+        Tabs = {}, TabBar = TabBar, ContentHolder = ContentHolder,
+        NotifyHolder = NotifyHolder, DefaultOpenBtn = DefaultOpenBtn,
+        _firstTab = true,
+    }, { __index = {} })
+
+    DefaultOpenBtn.MouseButton1Click:Connect(function()
+        PlayClick()
+        MainFrame.Visible = true
+        DefaultOpenBtn.Visible = false
+    end)
+
+    -- إن لم يضع المستخدم زر فتح خاص، يظهر الزر الافتراضي تلقائياً عند إغلاق/إخفاء الواجهة
+    ScreenGui.DescendantRemoving:Connect(function() end)
+
+    function Window:SetOpenButton(customButton)
+        DefaultOpenBtn.Visible = false
+        customButton.MouseButton1Click:Connect(function()
+            MainFrame.Visible = not MainFrame.Visible
+        end)
+    end
+
+    function Window:EditOpenButton(cfg)
+        cfg = cfg or {}
+        if cfg.Name then DefaultOpenBtn.Text = cfg.Name end
+        if cfg.Size then DefaultOpenBtn.Size = cfg.Size end
+        if cfg.Color then DefaultOpenBtn.BackgroundColor3 = Colors[cfg.Color] or cfg.Color end
+        if cfg.Icon then
+            New("ImageLabel", {
+                Size = UDim2.fromOffset(16, 16), Position = UDim2.fromOffset(6, 9),
+                BackgroundTransparency = 1, Image = "rbxassetid://" .. tostring(cfg.Icon),
+                Parent = DefaultOpenBtn,
+            })
+        end
+    end
+
+    function Window:Hide()
+        MainFrame.Visible = false
+        DefaultOpenBtn.Visible = true
+    end
+    function Window:Show()
+        MainFrame.Visible = true
+    end
+
+    -- ==================== الإشعارات ====================
+    function Window:Notify(cfg)
+        cfg = cfg or {}
+        local notifTitle = cfg.Title or ""
+        local notifText  = cfg.Text or cfg.Description or ""
+        local duration    = cfg.Duration or 4
+
+        local Notif = New("Frame", {
+            Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+            BackgroundColor3 = Colors.Black, BackgroundTransparency = 0.05,
+            Parent = NotifyHolder,
+        }, {
+            New("UICorner", { CornerRadius = UDim.new(0, 8) }),
+            New("UIStroke", { Color = theme, Thickness = 1.5 }),
+            New("UIPadding", {
+                PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8),
+                PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10),
+            }),
+            New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2) }),
+        })
+        New("TextLabel", {
+            Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1, Text = notifTitle,
+            TextColor3 = theme, Font = Enum.Font.GothamBold, TextSize = 13,
+            TextXAlignment = Enum.TextXAlignment.Left, Parent = Notif,
+        })
+        New("TextLabel", {
+            Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+            BackgroundTransparency = 1, Text = notifText, TextColor3 = Colors.White,
+            Font = Enum.Font.Gotham, TextSize = 12, TextWrapped = true,
+            TextXAlignment = Enum.TextXAlignment.Left, Parent = Notif,
+        })
+
+        Notif.BackgroundTransparency = 1
+        Tween(Notif, { BackgroundTransparency = 0.05 }, 0.25)
+        task.delay(duration, function()
+            if Notif and Notif.Parent then
+                Tween(Notif, { BackgroundTransparency = 1 }, 0.3)
+                task.wait(0.3)
+                Notif:Destroy()
+            end
+        end)
+    end
+
+    -- ==================== نظام التبويبات ====================
+    function Window:CreateTab(cfg)
+        cfg = cfg or {}
+        local tabName = cfg.Name or "Tab"
+        local icon = cfg.Icon
+
+        local TabBtn = New("TextButton", {
+            Name = tabName, Size = UDim2.fromOffset(math.max(60, #tabName * 8 + 24), 26),
+            BackgroundColor3 = Colors.Black, Text = "", Parent = TabBar,
+        }, { New("UICorner", { CornerRadius = UDim.new(0, 6) }) })
+
+        local iconOffset = 0
+        if icon then
+            iconOffset = 18
+            New("ImageLabel", {
+                Size = UDim2.fromOffset(14, 14), Position = UDim2.fromOffset(6, 6),
+                BackgroundTransparency = 1,
+                Image = tostring(icon):match("^%d+$") and ("rbxassetid://" .. icon) or "",
+                Parent = TabBtn,
+            })
+        end
+        New("TextLabel", {
+            Size = UDim2.new(1, -iconOffset - 6, 1, 0), Position = UDim2.fromOffset(iconOffset + 4, 0),
+            BackgroundTransparency = 1, Text = tabName, TextColor3 = Colors.White,
+            Font = Enum.Font.Gotham, TextSize = 12, Parent = TabBtn,
+        })
+
+        local Content = New("ScrollingFrame", {
+            Name = tabName .. "Content", Size = UDim2.fromScale(1, 1),
+            BackgroundTransparency = 1, ScrollBarThickness = 3, ScrollBarImageColor3 = theme,
+            CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            Visible = self._firstTab, Parent = ContentHolder,
+        }, {
+            New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8) }),
+            New("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingRight = UDim.new(0, 6) }),
+        })
+
+        if self._firstTab then
+            TabBtn.BackgroundColor3 = theme
+            self._firstTab = false
+        end
+
+        TabBtn.MouseButton1Click:Connect(function()
+            PlayClick()
+            for _, t in ipairs(Window.Tabs) do
+                t.Content.Visible = false
+                t.Button.BackgroundColor3 = Colors.Black
+            end
+            Content.Visible = true
+            TabBtn.BackgroundColor3 = theme
+        end)
+
+        local Tab = setmetatable({ Content = Content, Button = TabBtn }, { __index = {} })
+        table.insert(Window.Tabs, Tab)
+
+        -- ------------- زر (Button) -------------
+        function Tab:CreateButton(bcfg)
+            bcfg = bcfg or {}
+            local Btn = New("TextButton", {
+                Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = Colors.Black,
+                Text = bcfg.Name or "Button", TextColor3 = Colors.White,
+                Font = Enum.Font.GothamBold, TextSize = 13, Parent = Content,
+            }, {
+                New("UICorner", { CornerRadius = UDim.new(0, 6) }),
+                New("UIStroke", { Color = theme, Thickness = 1, Transparency = 0.4 }),
+            })
+            Btn.MouseButton1Click:Connect(function()
+                PlayClick()
+                Tween(Btn, { BackgroundColor3 = theme }, 0.1)
+                task.wait(0.1)
+                Tween(Btn, { BackgroundColor3 = Colors.Black }, 0.15)
+                if bcfg.Callback then pcall(bcfg.Callback) end
+            end)
+            return Btn
+        end
+
+        -- ------------- مفتاح (Toggle) -------------
+        function Tab:CreateToggle(tcfg)
+            tcfg = tcfg or {}
+            local state = tcfg.Default or false
+            local Row = New("Frame", {
+                Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, Parent = Content,
+            })
+            New("TextLabel", {
+                Size = UDim2.new(1, -50, 1, 0), BackgroundTransparency = 1,
+                Text = tcfg.Name or "Toggle", TextColor3 = Colors.White, Font = Enum.Font.Gotham,
+                TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, Parent = Row,
+            })
+            local Switch = New("Frame", {
+                Size = UDim2.fromOffset(40, 20), Position = UDim2.new(1, -40, 0.5, -10),
+                BackgroundColor3 = Colors.Gray, Parent = Row,
+            }, { New("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+            local Knob = New("Frame", {
+                Size = UDim2.fromOffset(16, 16), Position = UDim2.fromOffset(2, 2),
+                BackgroundColor3 = Colors.White, Parent = Switch,
+            }, { New("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+
+            local function apply(animate)
+                local knobPos = state and UDim2.fromOffset(22, 2) or UDim2.fromOffset(2, 2)
+                local col = state and theme or Colors.Gray
+                if animate then
+                    Tween(Knob, { Position = knobPos }, 0.15)
+                    Tween(Switch, { BackgroundColor3 = col }, 0.15)
+                else
+                    Knob.Position = knobPos
+                    Switch.BackgroundColor3 = col
+                end
+            end
+            apply(false)
+
+            local Click = New("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", Parent = Row })
+            Click.MouseButton1Click:Connect(function()
+                PlayClick()
+                state = not state
+                apply(true)
+                if tcfg.Callback then pcall(tcfg.Callback, state) end
+            end)
+            return { Set = function(_, v) state = v; apply(true) end }
+        end
+
+        -- ------------- سلايدر (Slider) -------------
+        function Tab:CreateSlider(scfg)
+            scfg = scfg or {}
+            local min, max = scfg.Min or 0, scfg.Max or 100
+            local value = scfg.Default or min
+
+            local Row = New("Frame", { Size = UDim2.new(1, 0, 0, 40), BackgroundTransparency = 1, Parent = Content })
+            local Label = New("TextLabel", {
+                Size = UDim2.new(1, 0, 0, 16), BackgroundTransparency = 1,
+                Text = (scfg.Name or "Slider") .. ": " .. tostring(value),
+                TextColor3 = Colors.White, Font = Enum.Font.Gotham, TextSize = 12,
+                TextXAlignment = Enum.TextXAlignment.Left, Parent = Row,
+            })
+            local Track = New("Frame", {
+                Size = UDim2.new(1, 0, 0, 8), Position = UDim2.new(0, 0, 0, 22),
+                BackgroundColor3 = Colors.Gray, Parent = Row,
+            }, { New("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+            local Fill = New("Frame", {
+                Size = UDim2.fromScale((value - min) / (max - min), 1),
+                BackgroundColor3 = theme, Parent = Track,
+            }, { New("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+            local Handle = New("Frame", {
+                Size = UDim2.fromOffset(14, 14), AnchorPoint = Vector2.new(0.5, 0.5),
+                Position = UDim2.new((value - min) / (max - min), 0, 0.5, 0),
+                BackgroundColor3 = Colors.White, Parent = Track,
+            }, { New("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+
+            local function set(rel)
+                value = math.floor(min + rel * (max - min))
+                Fill.Size = UDim2.fromScale(rel, 1)
+                Handle.Position = UDim2.new(rel, 0, 0.5, 0)
+                Label.Text = (scfg.Name or "Slider") .. ": " .. tostring(value)
+                if scfg.Callback then pcall(scfg.Callback, value) end
+            end
+            MakeAxisDraggable(Handle, Track, set)
+            return { Set = function(_, v) set(math.clamp((v - min) / (max - min), 0, 1)) end }
+        end
+
+        -- ------------- خانة كتابة (Textbox) -------------
+        function Tab:CreateTextbox(xcfg)
+            xcfg = xcfg or {}
+            local Row = New("Frame", { Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, Parent = Content })
+            New("TextLabel", {
+                Size = UDim2.new(0.4, 0, 1, 0), BackgroundTransparency = 1,
+                Text = xcfg.Name or "Input", TextColor3 = Colors.White, Font = Enum.Font.Gotham,
+                TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, Parent = Row,
+            })
+            local Box = New("TextBox", {
+                Size = UDim2.new(0.6, 0, 1, 0), Position = UDim2.new(0.4, 0, 0, 0),
+                BackgroundColor3 = Colors.Black, Text = "", PlaceholderText = xcfg.Placeholder or "",
+                TextColor3 = Colors.White, Font = Enum.Font.Gotham, TextSize = 13,
+                ClearTextOnFocus = false, Parent = Row,
+            }, {
+                New("UICorner", { CornerRadius = UDim.new(0, 6) }),
+                New("UIStroke", { Color = theme, Thickness = 1, Transparency = 0.5 }),
+            })
+            Box.FocusLost:Connect(function()
+                if xcfg.Type == "Number" then
+                    Box.Text = Box.Text:gsub("[^%d%.%-]", "")
+                end
+                if xcfg.Callback then pcall(xcfg.Callback, Box.Text) end
+            end)
+            return Box
+        end
+
+        -- ------------- قائمة منسدلة (Dropdown) -------------
+        function Tab:CreateDropdown(dcfg)
+            dcfg = dcfg or {}
+            local options = dcfg.Options or {}
+            local selected = dcfg.Default or options[1] or ""
+
+            local Row = New("Frame", { Size = UDim2.new(1, 0, 0, 32), BackgroundTransparency = 1, ClipsDescendants = false, Parent = Content })
+            local Head = New("TextButton", {
+                Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = Colors.Black,
+                Text = (dcfg.Name or "Dropdown") .. ": " .. tostring(selected),
+                TextColor3 = Colors.White, Font = Enum.Font.Gotham, TextSize = 13, Parent = Row,
+            }, {
+                New("UICorner", { CornerRadius = UDim.new(0, 6) }),
+                New("UIStroke", { Color = theme, Thickness = 1, Transparency = 0.5 }),
+            })
+            local List = New("Frame", {
+                Size = UDim2.new(1, 0, 0, #options * 24), Position = UDim2.new(0, 0, 1, 4),
+                BackgroundColor3 = Colors.Black, Visible = false, ZIndex = 10, Parent = Head,
+            }, {
+                New("UICorner", { CornerRadius = UDim.new(0, 6) }),
+                New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }),
+            })
+            for _, opt in ipairs(options) do
+                local OptBtn = New("TextButton", {
+                    Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1,
+                    Text = tostring(opt), TextColor3 = Colors.White, Font = Enum.Font.Gotham,
+                    TextSize = 12, ZIndex = 11, Parent = List,
+                })
+                OptBtn.MouseButton1Click:Connect(function()
+                    PlayClick()
+                    selected = opt
+                    Head.Text = (dcfg.Name or "Dropdown") .. ": " .. tostring(selected)
+                    List.Visible = false
+                    if dcfg.Callback then pcall(dcfg.Callback, opt) end
+                end)
+            end
+            Head.MouseButton1Click:Connect(function()
+                PlayClick()
+                List.Visible = not List.Visible
+            end)
+            return { Set = function(_, v) selected = v; Head.Text = (dcfg.Name or "Dropdown") .. ": " .. tostring(v) end }
+        end
+
+        -- ------------- كلمة/عنوان داخل التبويب (Label) -------------
+        function Tab:CreateLabel(text)
+            return New("TextLabel", {
+                Size = UDim2.new(1, 0, 0, 20), BackgroundTransparency = 1, Text = text or "",
+                TextColor3 = theme, Font = Enum.Font.GothamBold, TextSize = 13,
+                TextXAlignment = Enum.TextXAlignment.Left, Parent = Content,
+            })
+        end
+
+        -- ------------- منتقي الألوان (Color Picker) -------------
+        function Tab:CreateColorPicker(ccfg)
+            ccfg = ccfg or {}
+            local current = ccfg.Default or Colors.Red
+
+            local Row = New("Frame", { Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, Parent = Content })
+            New("TextLabel", {
+                Size = UDim2.new(0.6, 0, 1, 0), BackgroundTransparency = 1,
+                Text = ccfg.Name or "Color", TextColor3 = Colors.White, Font = Enum.Font.Gotham,
+                TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, Parent = Row,
+            })
+            local Preview = New("TextButton", {
+                Size = UDim2.fromOffset(50, 22), Position = UDim2.new(1, -50, 0.5, -11),
+                BackgroundColor3 = current, Text = "", Parent = Row,
+            }, { New("UICorner", { CornerRadius = UDim.new(0, 6) }) })
+
+            local Overlay = New("Frame", {
+                Size = UDim2.fromScale(1, 1), BackgroundTransparency = 0.4,
+                BackgroundColor3 = Color3.new(0, 0, 0), Visible = false, ZIndex = 60, Parent = MainFrame,
+            })
+            local Box = New("Frame", {
+                Size = UDim2.fromOffset(220, 170), AnchorPoint = Vector2.new(0.5, 0.5),
+                Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = Colors.Black,
+                ZIndex = 61, Parent = Overlay,
+            }, {
+                New("UICorner", { CornerRadius = UDim.new(0, 8) }),
+                New("UIStroke", { Color = theme, Thickness = 1.5 }),
+            })
+
+            local SV = New("Frame", {
+                Size = UDim2.fromOffset(150, 100), Position = UDim2.fromOffset(10, 10),
+                BackgroundColor3 = current, ZIndex = 62, Parent = Box,
+            }, {
+                New("UICorner", { CornerRadius = UDim.new(0, 4) }),
+                New("Frame", {
+                    Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), ZIndex = 63,
+                    Name = "WhiteGrad",
+                }, {
+                    New("UIGradient", { Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) }) }),
+                    New("UICorner", { CornerRadius = UDim.new(0, 4) }),
+                }),
+                New("Frame", {
+                    Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0),
+                    BackgroundTransparency = 1, ZIndex = 64, Name = "BlackGrad",
+                }, {
+                    New("UIGradient", { Rotation = 90, Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0) }) }),
+                    New("UICorner", { CornerRadius = UDim.new(0, 4) }),
+                }),
+            })
+            local SVCursor = New("Frame", {
+                Size = UDim2.fromOffset(8, 8), AnchorPoint = Vector2.new(0.5, 0.5),
+                BackgroundColor3 = Colors.White, ZIndex = 66, Parent = SV,
+            }, { New("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+
+            local HueBar = New("Frame", {
+                Size = UDim2.fromOffset(16, 100), Position = UDim2.fromOffset(170, 10),
+                ZIndex = 62, Parent = Box,
+            }, {
+                New("UICorner", { CornerRadius = UDim.new(0, 4) }),
+                New("UIGradient", {
+                    Rotation = 90,
+                    Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 0, 0)),
+                        ColorSequenceKeypoint.new(0.17, Color3.fromRGB(255, 255, 0)),
+                        ColorSequenceKeypoint.new(0.33, Color3.fromRGB(0, 255, 0)),
+                        ColorSequenceKeypoint.new(0.50, Color3.fromRGB(0, 255, 255)),
+                        ColorSequenceKeypoint.new(0.67, Color3.fromRGB(0, 0, 255)),
+                        ColorSequenceKeypoint.new(0.83, Color3.fromRGB(255, 0, 255)),
+                        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 0, 0)),
+                    }),
+                }),
+            })
+            local HueCursor = New("Frame", {
+                Size = UDim2.new(1, 4, 0, 4), AnchorPoint = Vector2.new(0.5, 0.5),
+                Position = UDim2.new(0.5, 0, 0, 0), BackgroundColor3 = Colors.White,
+                ZIndex = 66, Parent = HueBar,
+            })
+
+            local HexBox = New("TextBox", {
+                Size = UDim2.fromOffset(150, 22), Position = UDim2.fromOffset(10, 118),
+                BackgroundColor3 = Colors.Gray, Text = "#FF0000", TextColor3 = Colors.White,
+                Font = Enum.Font.Code, TextSize = 12, ZIndex = 62, Parent = Box,
+            }, { New("UICorner", { CornerRadius = UDim.new(0, 4) }) })
+
+            local hue = 0
+            local function updateFromHS(h, s, v)
+                hue = h
+                current = Color3.fromHSV(h, s, v)
+                SV.BackgroundColor3 = Color3.fromHSV(h, 1, 1)
+                Preview.BackgroundColor3 = current
+                HexBox.Text = string.format("#%02X%02X%02X",
+                    math.floor(current.R * 255), math.floor(current.G * 255), math.floor(current.B * 255))
+            end
+            updateFromHS(0, 1, 1)
+
+            MakeAxisDraggable(HueCursor, HueBar, function(rel)
+                HueCursor.Position = UDim2.new(0.5, 0, rel, 0)
+                local sPos = SVCursor.Position
+                updateFromHS(rel, 1 - sPos.Y.Scale, 1 - sPos.Y.Scale >= 0 and (1 - 0) or 1)
+            end)
+
+            -- سحب مؤشر التشبع/الإضاءة داخل المربع (ثنائي الاتجاه)
+            do
+                local dragging, activeInput = false, nil
+                local function update(pos)
+                    local relX = math.clamp((pos.X - SV.AbsolutePosition.X) / SV.AbsoluteSize.X, 0, 1)
+                    local relY = math.clamp((pos.Y - SV.AbsolutePosition.Y) / SV.AbsoluteSize.Y, 0, 1)
+                    SVCursor.Position = UDim2.fromScale(relX, relY)
+                    updateFromHS(hue, relX, 1 - relY)
+                end
+                SV.InputBegan:Connect(function(input)
+                    if dragging then return end
+                    if input.UserInputType == Enum.UserInputType.MouseButton1
+                        or input.UserInputType == Enum.UserInputType.Touch then
+                        dragging = true; activeInput = input; update(input.Position)
+                    end
+                end)
+                UserInputService.InputChanged:Connect(function(input)
+                    if dragging and input == activeInput then update(input.Position) end
+                end)
+                UserInputService.InputEnded:Connect(function(input)
+                    if input == activeInput then dragging = false; activeInput = nil end
+                end)
+            end
+
+            local ConfirmC = New("TextButton", {
+                Size = UDim2.fromOffset(90, 24), Position = UDim2.fromOffset(10, 140),
+                BackgroundColor3 = theme, Text = T("Confirm"), TextColor3 = Colors.White,
+                Font = Enum.Font.GothamBold, TextSize = 12, ZIndex = 62, Parent = Box,
+            }, { New("UICorner", { CornerRadius = UDim.new(0, 6) }) })
+            local CancelC = New("TextButton", {
+                Size = UDim2.fromOffset(90, 24), Position = UDim2.fromOffset(120, 140),
+                BackgroundColor3 = Colors.Gray, Text = T("Cancel"), TextColor3 = Colors.White,
+                Font = Enum.Font.GothamBold, TextSize = 12, ZIndex = 62, Parent = Box,
+            }, { New("UICorner", { CornerRadius = UDim.new(0, 6) }) })
+
+            Preview.MouseButton1Click:Connect(function()
+                PlayClick()
+                Overlay.Visible = true
+            end)
+            CancelC.MouseButton1Click:Connect(function()
+                PlayClick()
+                Overlay.Visible = false
+            end)
+            ConfirmC.MouseButton1Click:Connect(function()
+                PlayClick()
+                Overlay.Visible = false
+                Preview.BackgroundColor3 = current
+                if ccfg.Callback then pcall(ccfg.Callback, current) end
+            end)
+
+            return { Set = function(_, c3) current = c3; Preview.BackgroundColor3 = c3 end }
+        end
+
+        return Tab
+    end
+
+    return Window
+end
+
+-- ==================== شاشة الترحيب (Intro Splash) ====================
+-- ملاحظة: خط "Arced" ليس خطاً رسمياً في Roblox، تم استخدام Creepster كأقرب
+-- خط عريض/كلاسيكي بديل. إذا توفر خط مخصص برقم أصل (asset id) أخبرني لاستبداله.
+function Library:PlayIntro(cfg)
+    cfg = cfg or {}
+    local logoName = cfg.Name or "Rwonom hub"
+    local logoColor = cfg.Color or Colors.Red
+    local onComplete = cfg.OnComplete
+
+    local Gui = New("ScreenGui", {
+        Name = "RwonomIntro", ResetOnSpawn = false, DisplayOrder = 100, Parent = PlayerGui,
+    })
+    local Logo = New("Frame", {
+        Size = UDim2.fromOffset(0, 0), AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = Colors.Black,
+        Rotation = 0, Parent = Gui,
+    })
+    local Text = New("TextLabel", {
+        Size = UDim2.fromScale(0.9, 0.9), AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5), BackgroundTransparency = 1,
+        Text = logoName, TextColor3 = logoColor, Font = Enum.Font.Creepster,
+        TextScaled = true, TextTransparency = 1, Parent = Logo,
+    })
+
+    task.spawn(function()
+        -- ظهور وتكبير ودوران
+        Tween(Logo, { Size = UDim2.fromOffset(160, 160), Rotation = 360 }, 0.8, Enum.EasingStyle.Back)
+        Tween(Text, { TextTransparency = 0 }, 0.6)
+        task.wait(0.9)
+
+        -- نبض الاسم لمدة تقريباً 2 ثانية
+        local pulseEnd = tick() + 2
+        while tick() < pulseEnd do
+            Tween(Text, { TextSize = 46 }, 0.25)
+            task.wait(0.25)
+            Tween(Text, { TextSize = 36 }, 0.25)
+            task.wait(0.25)
+        end
+
+        -- دوران للخلف وتصغير حتى الاختفاء (0x0)
+        Tween(Logo, { Rotation = 720, Size = UDim2.fromOffset(0, 0) }, 1.0, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+        Tween(Text, { TextTransparency = 1 }, 0.7)
+        task.wait(1.0)
+
+        Gui:Destroy()
+        if onComplete then onComplete() end
+    end)
+end
+
+return Library
+
+--[[
+    ======================================================
+     مثال استخدام (ضع هذا الكود بعد سطر loadstring في سكربتك الخاص):
+
+    local Lib = loadstring(readfile("RwonomHub.lua"))()
+    -- أو: local Lib = loadstring(game:HttpGet("رابط الملف الخام"))()
+
+    Lib:SetLanguage("ar")
+
+    Lib:PlayIntro({
+        Name = "Rwonom hub",
+        Color = Color3.fromRGB(255, 40, 40),
+        OnComplete = function()
+            local Window = Lib:CreateWindow({
+                Name = "Rwonom Hub",
+                Description = "Classic Red/Black UI",
+                Theme = "Red",
+                Size = UDim2.fromOffset(586, 339),
+            })
+
+            local MainTab = Window:CreateTab({ Name = "الرئيسية" })
+
+            MainTab:CreateButton({ Name = "زر تجربة", Callback = function()
+                Window:Notify({ Title = "تم", Text = "تم الضغط على الزر", Duration = 3 })
+            end })
+
+            MainTab:CreateToggle({ Name = "تفعيل", Default = false, Callback = function(state)
+                print("Toggle:", state)
+            end })
+
+            MainTab:CreateSlider({ Name = "السرعة", Min = 0, Max = 100, Default = 50,
+                Callback = function(v) print("Slider:", v) end })
+
+            MainTab:CreateDropdown({ Name = "اختر", Options = {"واحد", "اثنان", "ثلاثة"},
+                Callback = function(v) print("Selected:", v) end })
+
+            MainTab:CreateColorPicker({ Name = "اللون", Default = Color3.fromRGB(200,30,40),
+                Callback = function(c) print(c) end })
+        end,
+    })
+    ======================================================
+]]
