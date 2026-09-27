@@ -51,15 +51,28 @@ local COLOR_RED    = Color3.fromRGB(225, 60, 70)
 local COLOR_ORANGE = Color3.fromRGB(255, 150, 60)
 local COLOR_PINK   = Color3.fromRGB(255, 110, 180)
 local COLOR_YELLOW = Color3.fromRGB(240, 220, 80)
-local COLOR_CYAN   = Color3.fromRGB(60, 220, 220)
-local COLOR_DARK   = Color3.fromRGB(22, 24, 30)
+local COLOR_CYAN   = Color3.fromRGB(45, 200, 195)      -- تركواز (مختلف عن السماوي)
+local COLOR_SKY    = Color3.fromRGB(110, 185, 255)     -- سماوي (أزرق سماوي فاتح)
+local COLOR_DARK   = Color3.fromRGB(38, 40, 46)        -- درك = أسود حديدي (Gunmetal) وليس أسود نقي
+local COLOR_BLACK  = Color3.fromRGB(8, 8, 10)
+local COLOR_GRAY   = Color3.fromRGB(120, 122, 132)
 local COLOR_OFF    = Color3.fromRGB(60, 62, 72)
 
--- اسم اللون -> Color3 (عشان تقدر تكتب اسم اللون بدل ما تكتب RGB)
+-- اسم اللون -> Color3 (تقدر تكتب الاسم عربي أو إنجليزي بدل RGB)
 local NAMED_COLORS = {
-	blue = COLOR_BLUE, green = COLOR_GREEN, purple = COLOR_PURPLE, red = COLOR_RED,
-	orange = COLOR_ORANGE, pink = COLOR_PINK, yellow = COLOR_YELLOW, cyan = COLOR_CYAN,
-	dark = COLOR_DARK, white = Color3.fromRGB(255, 255, 255), black = Color3.fromRGB(10, 10, 14),
+	blue = COLOR_BLUE,          ["أزرق"] = COLOR_BLUE,
+	green = COLOR_GREEN,        ["أخضر"] = COLOR_GREEN,
+	purple = COLOR_PURPLE,      ["بنفسجي"] = COLOR_PURPLE,
+	red = COLOR_RED,            ["أحمر"] = COLOR_RED,
+	orange = COLOR_ORANGE,      ["برتقالي"] = COLOR_ORANGE,
+	pink = COLOR_PINK,          ["وردي"] = COLOR_PINK,
+	yellow = COLOR_YELLOW,      ["أصفر"] = COLOR_YELLOW,
+	cyan = COLOR_CYAN,          ["تركواز"] = COLOR_CYAN,
+	sky = COLOR_SKY,            ["سماوي"] = COLOR_SKY,
+	white = Color3.fromRGB(255, 255, 255), ["أبيض"] = Color3.fromRGB(255, 255, 255),
+	black = COLOR_BLACK,        ["أسود"] = COLOR_BLACK,
+	dark = COLOR_DARK,          ["درك"] = COLOR_DARK, ["غامق"] = COLOR_DARK, ["اسود حديدي"] = COLOR_DARK,
+	gray = COLOR_GRAY,          ["رمادي"] = COLOR_GRAY,
 }
 
 local function resolveColor(value, fallback)
@@ -1542,6 +1555,20 @@ function Library.CreateWindow(config)
 	return Window
 end
 
+-- نسخة احتياطية عالمية: لو حطيت كود إنشاء نافذتك تحت سطر return بنفس
+-- الملف (بدل تنفيذ/سكربت منفصل)، هذا السطر ما يشتغل بعد return أبداً —
+-- بس تقدر توصل للمكتبة من أي تنفيذ (Execute) ثاني عن طريق:
+--     local Library = getgenv().ProUILibrary
+pcall(function()
+	if getgenv then
+		getgenv().ProUILibrary = Library
+	end
+end)
+
+-- ⚠️ توقف هنا! أي كود تكتبه تحت سطر "return Library" التالي بنفس
+-- الملف لن يعمل أبداً (return ينهي تنفيذ السكربت فوراً بهذه النقطة).
+-- اكتب كود CreateWindow / CreateTab / CreateButton في تنفيذ (Execute)
+-- ثاني منفصل بعد تشغيل هذا السكربت، أو استخدم getgenv() بالأعلى.
 return Library
 
 --[[
