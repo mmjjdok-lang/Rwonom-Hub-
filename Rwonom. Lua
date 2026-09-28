@@ -1729,4 +1729,3 @@ return Library
 	MainTab:CreateDropdown("اختر وضع", {"سهل", "متوسط", "صعب"}, function(choice) end)
 	MainTab:CreateColorPicker("لون الميزة", Color3.fromRGB(46, 224, 150), function(color) end)
 ]]
- 
