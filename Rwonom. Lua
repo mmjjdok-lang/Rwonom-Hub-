@@ -97,14 +97,17 @@ end
 local EASE_SOFT   = TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local EASE_BOUNCE = TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local EASE_FAST   = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+-- إحساس ضغط سريع جداً على كل الأزرار (مو بطيء/مطوّل)
+local EASE_PRESS_DOWN = TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local EASE_PRESS_UP   = TweenInfo.new(0.16, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
 --============================================================
 -- 2) نظام اللغة (بسيط - يترجم نصوص المكتبة الثابتة فقط)
 --============================================================
 local STRINGS = {
 	ar = {
-		close_title = "تأكيد الإغلاق",
-		close_text = "هل تريد إغلاق الواجهة؟",
+		close_title = "تأكيد حذف السكربت",
+		close_text = "هل تريد حذف السكربت نهائياً؟ لا يمكن التراجع بعدها.",
 		yes = "نعم", no = "لا",
 		open_text = "OPEN",
 		search_placeholder = "بحث...",
@@ -112,8 +115,8 @@ local STRINGS = {
 		nearest_color = "أقرب اسم",
 	},
 	en = {
-		close_title = "Confirm Close",
-		close_text = "Are you sure you want to close the UI?",
+		close_title = "Confirm Script Deletion",
+		close_text = "Delete the script permanently? This cannot be undone.",
 		yes = "Yes", no = "No",
 		open_text = "OPEN",
 		search_placeholder = "Search...",
@@ -180,7 +183,7 @@ local function applyPressEffect(button, shrinkScale)
 	local originalSize = button.Size
 	button.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			tween(button, EASE_FAST, {
+			tween(button, EASE_PRESS_DOWN, {
 				Size = UDim2.new(originalSize.X.Scale * shrinkScale, originalSize.X.Offset * shrinkScale,
 					originalSize.Y.Scale * shrinkScale, originalSize.Y.Offset * shrinkScale)
 			})
@@ -191,7 +194,7 @@ local function applyPressEffect(button, shrinkScale)
 	end)
 	button.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			tween(button, EASE_BOUNCE, { Size = originalSize })
+			tween(button, EASE_PRESS_UP, { Size = originalSize })
 		end
 	end)
 end
@@ -251,6 +254,64 @@ local function makeSingleTouchDraggable(hitArea, onUpdate)
 	UserInputService.InputEnded:Connect(function(input)
 		if activeInput == input then activeInput = nil end
 	end)
+end
+
+-- سحب عام بإصبع واحد لأي Frame/زر (يستخدم لزر Open ولنافذة منتقي الألوان)
+-- handle: العنصر اللي تمسكه للسحب | target: العنصر اللي يتحرك فعلياً
+-- opts.Container: فريم تتحدد الحركة داخل حدوده (nil = كامل الشاشة)
+-- opts.Threshold: أقل مسافة px عشان تُحسب "سحب" مو "ضغطة" (0 = فوراً سحب)
+-- opts.OnDragFlag(bool): يستدعى لما تبدأ/تتأكد حالة السحب
+local function makeFrameDraggable(handle, target, opts)
+	opts = opts or {}
+	local container = opts.Container
+	local threshold = opts.Threshold or 0
+	local dragInfo = opts.Weight or TweenInfo.new(0.05, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+	local activeInput, startInputPos, startAbsPos, dragged = nil, nil, nil, false
+
+	handle.InputBegan:Connect(function(input)
+		local isPointer = input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
+		if not isPointer or activeInput ~= nil then return end
+		activeInput, startInputPos, startAbsPos, dragged = input, input.Position, target.AbsolutePosition, false
+		if opts.OnDragFlag then opts.OnDragFlag(false) end
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End and activeInput == input then activeInput = nil end
+		end)
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if activeInput ~= input then return end
+		if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
+		local delta = input.Position - startInputPos
+		if not dragged and (math.abs(delta.X) > threshold or math.abs(delta.Y) > threshold) then
+			dragged = true
+			if opts.OnDragFlag then opts.OnDragFlag(true) end
+		end
+
+		local targetSize = target.AbsoluteSize
+		local anchor = target.AnchorPoint
+		local desiredAbsX, desiredAbsY = startAbsPos.X + delta.X, startAbsPos.Y + delta.Y
+
+		local minX, minY, maxX, maxY
+		if container then
+			local cPos, cSize = container.AbsolutePosition, container.AbsoluteSize
+			minX, minY = cPos.X, cPos.Y
+			maxX, maxY = cPos.X + cSize.X - targetSize.X, cPos.Y + cSize.Y - targetSize.Y
+		else
+			local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
+			minX, minY = 0, 0
+			maxX, maxY = viewport.X - targetSize.X, viewport.Y - targetSize.Y
+		end
+		local clampedX = math.clamp(desiredAbsX, minX, math.max(maxX, minX))
+		local clampedY = math.clamp(desiredAbsY, minY, math.max(maxY, minY))
+
+		tween(target, dragInfo, { Position = UDim2.new(0, clampedX + targetSize.X * anchor.X, 0, clampedY + targetSize.Y * anchor.Y) })
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if activeInput == input then activeInput = nil end
+	end)
+
+	return { WasDragged = function() return dragged end }
 end
 
 local function hexToColor3(hex)
@@ -313,19 +374,20 @@ local function Notify(title, text, desc, duration)
 	local accent = Instance.new("Frame")
 	accent.BackgroundColor3 = COLOR_GREEN
 	accent.BorderSizePixel = 0
-	accent.Size = UDim2.new(0, 4, 1, 0)
+	accent.Size = UDim2.new(1, 0, 0, 4) -- شريط أفقي (يمين-يسار) أعلى البطاقة، مو عمودي
+	accent.Position = UDim2.new(0, 0, 0, 0)
 	accent.ZIndex = 102
 	accent.Parent = card
 	round(accent, UDim.new(0, 2))
 	local accentGrad = Instance.new("UIGradient")
-	accentGrad.Rotation = 90
+	accentGrad.Rotation = 0 -- تدرج أفقي (يمين لليسار)
 	accentGrad.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, COLOR_GREEN), ColorSequenceKeypoint.new(1, COLOR_PURPLE) })
 	accentGrad.Parent = accent
 
 	local padding = Instance.new("UIPadding")
 	padding.PaddingLeft = UDim.new(0, 16)
 	padding.PaddingRight = UDim.new(0, 12)
-	padding.PaddingTop = UDim.new(0, 10)
+	padding.PaddingTop = UDim.new(0, 14)
 	padding.PaddingBottom = UDim.new(0, 12)
 	padding.Parent = card
 
@@ -471,6 +533,10 @@ end
 --============================================================
 local Library = {}
 
+-- نظام مستقل: تقدر تستدعيه بنفسك بره CreateWindow أيضاً
+-- Library.PlaySplash({Text=, Color=, Font=, Enabled=}, function() ... end)
+Library.PlaySplash = playIntroSplash
+
 function Library.SetLanguage(code)
 	if STRINGS[code] then currentLang = code end
 end
@@ -553,6 +619,13 @@ function Library.CreateWindow(config, ...)
 	end
 	applyPressEffect(openButton, 0.9)
 
+	-- زر Open قابل للسحب بإصبع واحد أو الماوس (يبقى مكانه بعد أي فتح/إغلاق)
+	local openBtnDragged = false
+	makeFrameDraggable(openButton, openButton, {
+		Threshold = 6, -- أقل من كذا = تعتبر ضغطة عادية تفتح الواجهة
+		OnDragFlag = function(v) openBtnDragged = v end,
+	})
+
 	----------------------------------------------------------
 	-- الواجهة الرئيسية
 	----------------------------------------------------------
@@ -632,12 +705,13 @@ function Library.CreateWindow(config, ...)
 	titleLabel.TextColor3 = Color3.new(1, 1, 1)
 	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 	titleLabel.Position = UDim2.new(0, 18, 0, 4)
-	titleLabel.Size = UDim2.new(1, -70, 0, 22)
+	titleLabel.Size = UDim2.new(1, -132, 0, 22)
 	titleLabel.ZIndex = 7
 	titleLabel.Parent = topBar
 
+	local subLabel = nil
 	if subTitle ~= "" then
-		local subLabel = Instance.new("TextLabel")
+		subLabel = Instance.new("TextLabel")
 		subLabel.BackgroundTransparency = 1
 		subLabel.Text = subTitle
 		subLabel.Font = Enum.Font.Gotham
@@ -645,24 +719,32 @@ function Library.CreateWindow(config, ...)
 		subLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
 		subLabel.TextXAlignment = Enum.TextXAlignment.Left
 		subLabel.Position = UDim2.new(0, 18, 0, 26)
-		subLabel.Size = UDim2.new(1, -70, 0, 16)
+		subLabel.Size = UDim2.new(1, -132, 0, 16)
 		subLabel.ZIndex = 7
 		subLabel.Parent = topBar
 	end
 
-	local closeButton = Instance.new("TextButton")
-	closeButton.Text = "✕"
-	closeButton.Font = Enum.Font.GothamBold
-	closeButton.TextSize = 16
-	closeButton.TextColor3 = Color3.new(1, 1, 1)
-	closeButton.AutoButtonColor = false
-	closeButton.BackgroundColor3 = COLOR_RED
-	closeButton.Size = UDim2.new(0, 30, 0, 30)
-	closeButton.Position = UDim2.new(1, -40, 0, 8)
-	closeButton.ZIndex = 7
-	closeButton.Parent = topBar
-	round(closeButton, UDim.new(1, 0))
-	applyPressEffect(closeButton, 0.85)
+	-- ثلاثة أزرار بالعنوان (من اليمين): إخفاء كامل ← تصغير للعنوان فقط ← حذف (X)
+	local function makeTitleBarButton(text, color, xOffset)
+		local b = Instance.new("TextButton")
+		b.Text = text
+		b.Font = Enum.Font.GothamBold
+		b.TextSize = 15
+		b.TextColor3 = Color3.new(1, 1, 1)
+		b.AutoButtonColor = false
+		b.BackgroundColor3 = color
+		b.Size = UDim2.new(0, 26, 0, 26)
+		b.Position = UDim2.new(1, xOffset, 0, 10)
+		b.ZIndex = 7
+		b.Parent = topBar
+		round(b, UDim.new(1, 0))
+		applyPressEffect(b, 0.85)
+		return b
+	end
+
+	local deleteButton    = makeTitleBarButton("✕", COLOR_RED, -34)   -- يحذف السكربت (مع تأكيد)
+	local minimizeButton  = makeTitleBarButton("▾", COLOR_OFF, -66)   -- يصغّر للعنوان فقط
+	local hideButton      = makeTitleBarButton("–", COLOR_OFF, -98)   -- يخفي الواجهة كاملة (يرجع زر Open)
 
 	----------------------------------------------------------
 	-- الجسم: Sidebar (بحث + تبويبات) + منطقة الصفحات
@@ -810,10 +892,11 @@ function Library.CreateWindow(config, ...)
 	----------------------------------------------------------
 	-- سحب بإصبع واحد + تثبيت داخل الشاشة
 	----------------------------------------------------------
+	local openPopupCount = 0 -- >0 يعني فيه نافذة منبثقة (مثل منتقي الألوان) مفتوحة، فنجمّد سحب الواجهة الرئيسية
 	local activeDragInput, dragStartInputPos, dragStartAbsPos = nil, nil, nil
 	topBar.InputBegan:Connect(function(input)
 		local isPointer = input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
-		if not isPointer or activeDragInput ~= nil then return end
+		if not isPointer or activeDragInput ~= nil or openPopupCount > 0 then return end
 		activeDragInput, dragStartInputPos, dragStartAbsPos = input, input.Position, mainFrame.AbsolutePosition
 		tween(mainFrame, EASE_FAST, { Size = UDim2.new(0, sizeX - 8, 0, sizeY - 6) })
 		input.Changed:Connect(function()
@@ -843,7 +926,8 @@ function Library.CreateWindow(config, ...)
 	----------------------------------------------------------
 	-- فتح / إغلاق (مع تأكيد الإغلاق)
 	----------------------------------------------------------
-	local isOpen = false
+	local isOpen, isMinimized = false, false
+	local fullHeight, collapsedHeight = sizeY, topBar.Size.Y.Offset
 
 	local function openUI()
 		if isOpen then return end
@@ -858,12 +942,13 @@ function Library.CreateWindow(config, ...)
 		mainStroke.Transparency = 1
 		glow.ImageTransparency = 1
 
-		tween(mainFrame, EASE_BOUNCE, { Size = UDim2.new(0, sizeX, 0, sizeY), Rotation = 0 })
+		tween(mainFrame, EASE_BOUNCE, { Size = UDim2.new(0, sizeX, 0, isMinimized and collapsedHeight or fullHeight), Rotation = 0 })
 		tween(mainStroke, EASE_SOFT, { Transparency = 0.4 })
 		tween(glow, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { ImageTransparency = 0.55 })
 	end
 
-	local function performClose()
+	-- (1) إخفاء الواجهة بالكامل: يرجّع زر Open العائم
+	local function hideUI()
 		isOpen = false
 		local t = tween(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In), { Size = UDim2.new(0, 0, 0, 0), Rotation = 8 })
 		tween(glow, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { ImageTransparency = 1 })
@@ -876,7 +961,29 @@ function Library.CreateWindow(config, ...)
 		end)
 	end
 
-	local function askCloseConfirmation()
+	-- (2) تصغير للعنوان فقط (Minimize) ← لو فكيته يرجع الإطار والعنوان يرتفع لمكانه
+	local function toggleMinimize()
+		isMinimized = not isMinimized
+		if isMinimized then
+			if subLabel then subLabel.Visible = false end
+			titleLabel.TextXAlignment = Enum.TextXAlignment.Center
+			tween(titleLabel, EASE_SOFT, { Position = UDim2.new(0, 0, 0, 4), Size = UDim2.new(1, 0, 0, 22) })
+			tween(mainFrame, EASE_SOFT, { Size = UDim2.new(0, sizeX, 0, collapsedHeight) })
+		else
+			tween(mainFrame, EASE_SOFT, { Size = UDim2.new(0, sizeX, 0, fullHeight) })
+			titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+			tween(titleLabel, EASE_SOFT, { Position = UDim2.new(0, 18, 0, 4), Size = UDim2.new(1, -132, 0, 22) })
+			if subLabel then subLabel.Visible = true end
+		end
+	end
+
+	-- (3) حذف السكربت نهائياً (بعد تأكيد)
+	local function deleteEverything()
+		screenGui:Destroy()
+	end
+
+	local function askDeleteConfirmation()
+		openPopupCount = openPopupCount + 1
 		confirmOverlay.Visible = true
 		confirmOverlay.BackgroundTransparency = 1
 		confirmBox.Size = UDim2.new(0, 0, 0, 0)
@@ -885,20 +992,25 @@ function Library.CreateWindow(config, ...)
 	end
 
 	local function hideConfirmation()
+		openPopupCount = math.max(openPopupCount - 1, 0)
 		tween(confirmOverlay, EASE_FAST, { BackgroundTransparency = 1 })
 		local t = tween(confirmBox, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Size = UDim2.new(0, 0, 0, 0) })
 		t.Completed:Connect(function() confirmOverlay.Visible = false end)
 	end
 
-	yesBtn.MouseButton1Click:Connect(function() hideConfirmation(); performClose() end)
-	yesBtn.TouchTap:Connect(function() hideConfirmation(); performClose() end)
+	yesBtn.MouseButton1Click:Connect(function() hideConfirmation(); deleteEverything() end)
+	yesBtn.TouchTap:Connect(function() hideConfirmation(); deleteEverything() end)
 	noBtn.MouseButton1Click:Connect(hideConfirmation)
 	noBtn.TouchTap:Connect(hideConfirmation)
 
-	openButton.MouseButton1Click:Connect(openUI)
-	openButton.TouchTap:Connect(openUI)
-	closeButton.MouseButton1Click:Connect(askCloseConfirmation)
-	closeButton.TouchTap:Connect(askCloseConfirmation)
+	openButton.MouseButton1Click:Connect(function() if not openBtnDragged then openUI() end end)
+	openButton.TouchTap:Connect(function() if not openBtnDragged then openUI() end end)
+	hideButton.MouseButton1Click:Connect(hideUI)
+	hideButton.TouchTap:Connect(hideUI)
+	minimizeButton.MouseButton1Click:Connect(toggleMinimize)
+	minimizeButton.TouchTap:Connect(toggleMinimize)
+	deleteButton.MouseButton1Click:Connect(askDeleteConfirmation)
+	deleteButton.TouchTap:Connect(askDeleteConfirmation)
 
 	----------------------------------------------------------
 	-- كائن النافذة + نظام التبويبات
@@ -1452,22 +1564,45 @@ function Library.CreateWindow(config, ...)
 			applyPressEffect(swatch, 0.9)
 
 			-- نافذة الاختيار المنبثقة (فوق الواجهة كلها)
+			local POPUP_W, POPUP_H = 250, 250
 			local popup = Instance.new("Frame")
 			popup.BackgroundColor3 = COLOR_DARK
 			popup.AnchorPoint = Vector2.new(0.5, 0.5)
 			popup.Position = UDim2.new(0.5, 0, 0.5, 0)
-			popup.Size = UDim2.new(0, 250, 0, 230)
+			popup.Size = UDim2.new(0, POPUP_W, 0, POPUP_H)
 			popup.Visible = false
 			popup.ZIndex = 60
 			popup.Parent = mainFrame
 			round(popup, UDim.new(0, 14))
 			stroke(popup, COLOR_PURPLE, 1, 0.3)
 
+			-- مقبض سحب مستقل: يحرك نافذة الألوان فقط، الواجهة اللي خلفها ما تتحرك
+			local pickerHandle = Instance.new("Frame")
+			pickerHandle.BackgroundColor3 = Color3.new(1, 1, 1)
+			pickerHandle.BackgroundTransparency = 0.93
+			pickerHandle.Size = UDim2.new(1, 0, 0, 22)
+			pickerHandle.ZIndex = 61
+			pickerHandle.Parent = popup
+			round(pickerHandle, UDim.new(0, 14))
+			local grip = Instance.new("TextLabel")
+			grip.BackgroundTransparency = 1
+			grip.Text = "⋮⋮⋮⋮⋮⋮"
+			grip.Font = Enum.Font.GothamBold
+			grip.TextSize = 12
+			grip.Rotation = 90
+			grip.TextColor3 = Color3.fromRGB(180, 180, 190)
+			grip.Size = UDim2.new(0, 60, 0, 16)
+			grip.AnchorPoint = Vector2.new(0.5, 0.5)
+			grip.Position = UDim2.new(0.5, 0, 0.5, 0)
+			grip.ZIndex = 62
+			grip.Parent = pickerHandle
+			makeFrameDraggable(pickerHandle, popup, { Container = mainFrame })
+
 			local h, s, v = Color3.toHSV(defaultColor)
 
 			local svBox = Instance.new("Frame")
 			svBox.BackgroundColor3 = Color3.fromHSV(h, 1, 1)
-			svBox.Position = UDim2.new(0, 14, 0, 14)
+			svBox.Position = UDim2.new(0, 14, 0, 34)
 			svBox.Size = UDim2.new(0, 170, 0, 150)
 			svBox.ZIndex = 61
 			svBox.Parent = popup
@@ -1505,7 +1640,7 @@ function Library.CreateWindow(config, ...)
 			stroke(svKnob, Color3.new(0, 0, 0), 1.5, 0)
 
 			local hueStrip = Instance.new("Frame")
-			hueStrip.Position = UDim2.new(0, 194, 0, 14)
+			hueStrip.Position = UDim2.new(0, 194, 0, 34)
 			hueStrip.Size = UDim2.new(0, 20, 0, 150)
 			hueStrip.ZIndex = 61
 			hueStrip.Parent = popup
@@ -1537,7 +1672,7 @@ function Library.CreateWindow(config, ...)
 			hexBox.BackgroundColor3 = Color3.new(1, 1, 1)
 			hexBox.BackgroundTransparency = 0.9
 			hexBox.ClearTextOnFocus = false
-			hexBox.Position = UDim2.new(0, 14, 0, 172)
+			hexBox.Position = UDim2.new(0, 14, 0, 192)
 			hexBox.Size = UDim2.new(0, 100, 0, 24)
 			hexBox.ZIndex = 61
 			hexBox.Parent = popup
@@ -1550,7 +1685,7 @@ function Library.CreateWindow(config, ...)
 			nameLbl.TextSize = 11
 			nameLbl.TextColor3 = Color3.fromRGB(200, 200, 210)
 			nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-			nameLbl.Position = UDim2.new(0, 120, 0, 172)
+			nameLbl.Position = UDim2.new(0, 120, 0, 192)
 			nameLbl.Size = UDim2.new(0, 116, 0, 24)
 			nameLbl.ZIndex = 61
 			nameLbl.Parent = popup
@@ -1615,11 +1750,14 @@ function Library.CreateWindow(config, ...)
 			end)
 
 			local function openPicker()
+				openPopupCount = openPopupCount + 1
+				popup.Position = UDim2.new(0.5, 0, 0.5, 0)
 				popup.Visible = true
 				popup.Size = UDim2.new(0, 0, 0, 0)
-				tween(popup, EASE_BOUNCE, { Size = UDim2.new(0, 250, 0, 230) })
+				tween(popup, EASE_BOUNCE, { Size = UDim2.new(0, POPUP_W, 0, POPUP_H) })
 			end
 			local function closePicker()
+				openPopupCount = math.max(openPopupCount - 1, 0)
 				local t = tween(popup, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Size = UDim2.new(0, 0, 0, 0) })
 				t.Completed:Connect(function() popup.Visible = false end)
 			end
@@ -1674,13 +1812,13 @@ function Library.CreateWindow(config, ...)
 		end
 	end
 
-	Window.Open, Window.Close = openUI, performClose
+	Window.Open, Window.Close, Window.Minimize, Window.Delete = openUI, hideUI, toggleMinimize, deleteEverything
 
 	----------------------------------------------------------
 	-- تشغيل السبلاش الترحيبي ثم فتح الواجهة تلقائياً
 	----------------------------------------------------------
 	openButton.Visible = false
-	playIntroSplash(config.Splash, function() openUI() end)
+	Library.PlaySplash(config.Splash, function() openUI() end)
 
 	return Window
 end
@@ -1729,3 +1867,4 @@ return Library
 	MainTab:CreateDropdown("اختر وضع", {"سهل", "متوسط", "صعب"}, function(choice) end)
 	MainTab:CreateColorPicker("لون الميزة", Color3.fromRGB(46, 224, 150), function(color) end)
 ]]
+ 
