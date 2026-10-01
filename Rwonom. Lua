@@ -1,3 +1,51 @@
+local function AuraForceLoad(itemsToLoad, onComplete)
+    local totalItems = 0
+    local completed = 0
+    local loadedData = {}
+
+    for name, _ in pairs(itemsToLoad) do
+        totalItems = totalItems + 1
+    end
+
+    if totalItems == 0 then
+        if onComplete then onComplete() end
+        return
+    end
+
+    -- ضغط سريع جداً ومتوازي (يقوم بتحميل كل شيء في نفس اللحظة بأقصى قوة للمعالج)
+    for name, loadFunc in pairs(itemsToLoad) do
+        task.spawn(function()
+            local success, result = pcall(loadFunc)
+            if success then
+                loadedData[name] = result
+            else
+                warn("[Aura Error] فشل في تحميل: " .. tostring(name))
+            end
+            completed = completed + 1
+        end)
+    end
+
+    -- حلقة ضغط سريعة بدون انتظار طويل لتسريع التنفيذ لأقصى حد ممكن
+    local startTime = tick()
+    while completed < totalItems do
+        -- حلقة دوران سريعة جداً بدون task.wait عشان يجبر النظام ينهي العمليات فوراً
+        -- (هنا يصير اللاج الخفيف المتعمد لحظة التحميل فقط)
+        if tick() - startTime > 5 then -- حماية لو علق شي يطلع لحاله
+            break
+        end
+    end
+
+    -- تنظيف الذاكرة الإجباري فور انتهاء التحميل (Gc garbage collection) لضمان ثبات الأداء
+    task.defer(function()
+        collectgarbage("collect")
+    end)
+
+    -- تشغيل الواجهة أو النظام بعد انتهاء الضغط مباشرة
+    if onComplete then
+        onComplete(loadedData)
+    end
+end
+ 
 --[[
 	=====================================================================
 	 مكتبة واجهة احترافية شاملة - Roblox LocalScript / Module
@@ -9,7 +57,7 @@
 
 	 الأنظمة المتوفرة:
 	   1) Library.CreateWindow(config)      -- إنشاء النافذة
-	   2) Window:CreateTab(name, icon)       -- تبويبات + بحث بالكلمة
+	   2) Window:CreateTab(name, icon)       -- تبويبات + بحث بالكلمة + أيقونات Lucide
 	   3) Tab:CreateButton(name, desc, cb)   -- زر
 	   4) Tab:CreateToggle(name, desc, def, cb) -- مفتاح تشغيل/إيقاف
 	   5) Library.Notify(title, text, desc, duration) -- إشعارات يمين تحت
@@ -23,6 +71,7 @@
 	   13) سبلاش ترحيبي (Rwonom hub) قبل فتح الواجهة تلقائياً
 	   14) Tab:CreateLabel(text) / Tab:CreateNote(text, "Dark"/"Blue")
 	   15) Library.ApplyGradient(target, {Colors=, Speed=, Intensity=, Rotation=})
+	   16) أيقونات Lucide بالاسم (config.Icon بالنافذة، icon بالتبويب)
 	=====================================================================
 ]]
 
@@ -61,7 +110,72 @@ local COLOR_BLACK  = Color3.fromRGB(8, 8, 10)
 local COLOR_GRAY   = Color3.fromRGB(120, 122, 132)
 local COLOR_OFF    = Color3.fromRGB(60, 62, 72)
 
--- اسم اللون -> Color3 (تقدر تكتب الاسم عربي أو إنجليزي بدل RGB)
+-- أسماء أيقونات بأسلوب Lucide (lucide.dev) -> رمز بديل بصري
+-- ملاحظة أمانة: روبلوكس ما يقدر يجيب صور مباشرة من مواقع خارجية (ImageLabel
+-- يشتغل فقط مع rbxassetid://)، فهذا الجدول تقريب بصري بالرموز لأشهر أسماء
+-- Lucide. لو عندك asset id حقيقي لأيقونة Lucide مرفوعة على روبلوكس، مرره
+-- مباشرة كـ "rbxassetid://1234567" وبتشتغل كصورة حقيقية بدل الرمز.
+local LUCIDE_ICONS = {
+	home = "⌂", ["house"] = "⌂", settings = "⚙", cog = "⚙", user = "☺", ["user-round"] = "☺",
+	users = "☺☺", star = "★", heart = "♥", info = "ℹ", ["circle-alert"] = "⚠", ["triangle-alert"] = "⚠",
+	search = "🔍", bell = "🔔", check = "✓", ["check-check"] = "✓✓", x = "✕", plus = "+", minus = "–",
+	trash = "🗑", trash2 = "🗑", edit = "✎", pencil = "✎", folder = "📁", ["folder-open"] = "📂",
+	file = "📄", ["file-text"] = "📄", lock = "🔒", unlock = "🔓", sun = "☀", moon = "☾",
+	globe = "🌐", mail = "✉", phone = "☎", calendar = "📅", clock = "🕐", download = "⬇",
+	upload = "⬆", link = "🔗", eye = "👁", ["eye-off"] = "🙈", shield = "🛡", zap = "⚡",
+	gift = "🎁", music = "♪", image = "🖼", camera = "📷", ["map-pin"] = "📍", flag = "🚩",
+	bookmark = "🔖", tag = "🏷", filter = "▽", menu = "☰", grid = "▦", list = "≡",
+	layers = "▤", package = "📦", truck = "🚚", ["shopping-cart"] = "🛒", wallet = "👛",
+	["credit-card"] = "💳", ["chart-bar"] = "📊", ["chart-line"] = "📈", play = "▶", pause = "⏸",
+	["volume-2"] = "🔊", ["volume-x"] = "🔇", wifi = "📶", battery = "🔋", power = "⏻",
+	["log-out"] = "⎋", ["log-in"] = "⏎", ["arrow-right"] = "→", ["arrow-left"] = "←",
+	["arrow-up"] = "↑", ["arrow-down"] = "↓", ["chevron-right"] = "›", ["chevron-left"] = "‹",
+	["refresh-cw"] = "↻", code = "⌨", terminal = "⌨", gamepad = "🎮", crown = "♛",
+	rocket = "🚀", sparkles = "✦", palette = "🎨", paintbrush = "🖌", wrench = "🔧",
+	hammer = "🔨", key = "🔑", database = "🗄", server = "🖥", cloud = "☁", sliders = "🎚",
+	["toggle-left"] = "⬮", ["toggle-right"] = "⬯", circle = "●", square = "■", triangle = "▲",
+}
+
+-- يحدد نوع الأيقونة ويرجع {Type="Image"|"Text", Value=...}
+local function resolveIcon(name)
+	if name == nil or name == "" then return nil end
+	local s = tostring(name)
+	if s:match("^rbxassetid://") or s:match("^rbxthumb://") then
+		return { Type = "Image", Value = s }
+	end
+	local key = s:lower():gsub("[%s_]+", "-")
+	if LUCIDE_ICONS[key] then
+		return { Type = "Text", Value = LUCIDE_ICONS[key] }
+	end
+	return { Type = "Text", Value = s } -- اسم غير معروف أو إيموجي/حرف مرره المستخدم مباشرة
+end
+
+-- ينشئ عنصر أيقونة (صورة أو نص) بحجم ولون محددين
+local function createIconElement(parent, iconSpec, size, color)
+	if not iconSpec then return nil end
+	if iconSpec.Type == "Image" then
+		local img = Instance.new("ImageLabel")
+		img.BackgroundTransparency = 1
+		img.Image = iconSpec.Value
+		img.ImageColor3 = color or Color3.new(1, 1, 1)
+		img.Size = UDim2.new(0, size, 0, size)
+		img.Parent = parent
+		return img
+	else
+		local lbl = Instance.new("TextLabel")
+		lbl.BackgroundTransparency = 1
+		lbl.Text = iconSpec.Value
+		lbl.Font = Enum.Font.GothamBold
+		lbl.TextSize = size
+		lbl.TextColor3 = color or Color3.new(1, 1, 1)
+		lbl.Size = UDim2.new(0, size + 4, 0, size + 4)
+		lbl.TextXAlignment = Enum.TextXAlignment.Center
+		lbl.TextYAlignment = Enum.TextYAlignment.Center
+		lbl.Parent = parent
+		return lbl
+	end
+end
+
 local NAMED_COLORS = {
 	blue = COLOR_BLUE,          ["أزرق"] = COLOR_BLUE,
 	green = COLOR_GREEN,        ["أخضر"] = COLOR_GREEN,
@@ -758,15 +872,26 @@ function Library.CreateWindow(config, ...)
 	topBarFix.ZIndex = 6
 	topBarFix.Parent = topBar
 
+	-- أيقونة الواجهة (اسم Lucide أو rbxassetid) — تطلع يسار العنوان
+	local windowIconSpec = resolveIcon(config.Icon)
+	local titleLeftOffset = 18
+	local titleIconEl = nil
+	if windowIconSpec then
+		titleIconEl = createIconElement(topBar, windowIconSpec, 18, Color3.new(1, 1, 1))
+		titleIconEl.Position = UDim2.new(0, 18, 0, 6)
+		titleIconEl.ZIndex = 7
+		titleLeftOffset = 18 + 18 + 8 -- مسافة الأيقونة + فراغ بسيط
+	end
+
 	local titleLabel = Instance.new("TextLabel")
 	titleLabel.BackgroundTransparency = 1
 	titleLabel.Text = title
 	titleLabel.Font = Enum.Font.GothamBold
 	titleLabel.TextSize = 18
 	titleLabel.TextColor3 = Color3.new(1, 1, 1)
-	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-	titleLabel.Position = UDim2.new(0, 18, 0, 4)
-	titleLabel.Size = UDim2.new(1, -132, 0, 22)
+	titleLabel.TextXAlignment = Enum.TextXAlignment.Left -- عنوان السكربت دايماً باليسار
+	titleLabel.Position = UDim2.new(0, titleLeftOffset, 0, 4)
+	titleLabel.Size = UDim2.new(1, -(titleLeftOffset + 114), 0, 22)
 	titleLabel.ZIndex = 7
 	titleLabel.Parent = topBar
 
@@ -779,8 +904,8 @@ function Library.CreateWindow(config, ...)
 		subLabel.TextSize = 12
 		subLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
 		subLabel.TextXAlignment = Enum.TextXAlignment.Left
-		subLabel.Position = UDim2.new(0, 18, 0, 26)
-		subLabel.Size = UDim2.new(1, -132, 0, 16)
+		subLabel.Position = UDim2.new(0, titleLeftOffset, 0, 26)
+		subLabel.Size = UDim2.new(1, -(titleLeftOffset + 114), 0, 16)
 		subLabel.ZIndex = 7
 		subLabel.Parent = topBar
 	end
@@ -1027,14 +1152,16 @@ function Library.CreateWindow(config, ...)
 		isMinimized = not isMinimized
 		if isMinimized then
 			if subLabel then subLabel.Visible = false end
+			if titleIconEl then titleIconEl.Visible = false end
 			titleLabel.TextXAlignment = Enum.TextXAlignment.Center
 			tween(titleLabel, EASE_SOFT, { Position = UDim2.new(0, 0, 0, 4), Size = UDim2.new(1, 0, 0, 22) })
 			tween(mainFrame, EASE_SOFT, { Size = UDim2.new(0, sizeX, 0, collapsedHeight) })
 		else
 			tween(mainFrame, EASE_SOFT, { Size = UDim2.new(0, sizeX, 0, fullHeight) })
 			titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-			tween(titleLabel, EASE_SOFT, { Position = UDim2.new(0, 18, 0, 4), Size = UDim2.new(1, -132, 0, 22) })
+			tween(titleLabel, EASE_SOFT, { Position = UDim2.new(0, titleLeftOffset, 0, 4), Size = UDim2.new(1, -(titleLeftOffset + 114), 0, 22) })
 			if subLabel then subLabel.Visible = true end
+			if titleIconEl then titleIconEl.Visible = true end
 		end
 	end
 
@@ -1086,7 +1213,21 @@ function Library.CreateWindow(config, ...)
 		end
 		name = tostring(name or "Tab")
 		local tabButton = Instance.new("TextButton")
-		tabButton.Text = (icon and (tostring(icon) .. "  ") or "") .. name
+		-- دعم أيقونات Lucide بالاسم (home, settings, user...) أو rbxassetid أو إيموجي مباشر
+		local tabIconSpec = resolveIcon(icon)
+		if tabIconSpec and tabIconSpec.Type == "Image" then
+			tabButton.Text = name
+			tabButton.TextXAlignment = Enum.TextXAlignment.Left
+			local tabIconEl = createIconElement(tabButton, tabIconSpec, 16, Color3.fromRGB(200, 200, 210))
+			tabIconEl.Position = UDim2.new(0, 8, 0.5, -8)
+			tabIconEl.ZIndex = 8
+			local tp = Instance.new("UIPadding")
+			tp.PaddingLeft = UDim.new(0, 30)
+			tp.Parent = tabButton
+		else
+			local tabIconPrefix = tabIconSpec and (tabIconSpec.Value .. "  ") or ""
+			tabButton.Text = tabIconPrefix .. name
+		end
 		tabButton.Font = Enum.Font.GothamMedium
 		tabButton.TextSize = 14
 		tabButton.TextColor3 = Color3.fromRGB(200, 200, 210)
@@ -2004,11 +2145,12 @@ return Library
 
 	local Window = Library.CreateWindow({
 		Title = "الواجهة الاحترافية",
+		Icon = "home",        -- اسم أيقونة Lucide، تطلع يسار العنوان
 		Theme = "Green",
 		Size = { X = 586, Y = 339 },
 	})
 
-	local MainTab = Window:CreateTab("الرئيسية", "🏠")
+	local MainTab = Window:CreateTab("الرئيسية", "settings") -- أيقونة Lucide بالاسم
 	MainTab:CreateLabel("هذا نص بسيط بدون خلفية")
 	MainTab:CreateNote("هذه ملاحظة غامقة", "Dark")
 	MainTab:CreateNote("هذه ملاحظة زرقاء معلوماتية", "Blue")
@@ -2017,9 +2159,7 @@ return Library
 		Library.Notify("تم", "تم الضغط على الزر", "وصف إضافي هنا", 3)
 	end)
 
-	-- نظام التدرج العام: جرّبه على زر Open أو الإطار أو حوافه
+	-- نظام التدرج العام
 	Library.ApplyGradient(Window.OpenButton, { Colors = {"Green", "Purple"}, Speed = 5, Intensity = 1 })
 	Library.ApplyGradient(Window.FrameStroke, { Colors = {"Blue", "Cyan"}, Speed = 8, Intensity = 0.6 })
-	-- استدعاء ثاني على نفس العنصر = طبقة تدرج ثانية فوق الأولى
-	Library.ApplyGradient(Window.FrameStroke, { Colors = {"Red", "Orange"}, Speed = 3, Intensity = 0.4 })
-]]
+]] 
