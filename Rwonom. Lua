@@ -21,6 +21,8 @@
 	   11) تأكيد الإغلاق (X) بنافذة Yes/No
 	   12) Library.SetLanguage("ar" / "en")  -- نظام اللغة
 	   13) سبلاش ترحيبي (Rwonom hub) قبل فتح الواجهة تلقائياً
+	   14) Tab:CreateLabel(text) / Tab:CreateNote(text, "Dark"/"Blue")
+	   15) Library.ApplyGradient(target, {Colors=, Speed=, Intensity=, Rotation=})
 	=====================================================================
 ]]
 
@@ -553,8 +555,67 @@ Library.Notify = function(title, text, desc, duration, ...)
 	Notify(tostring(title or ""), tostring(text or ""), desc ~= nil and tostring(desc) or nil, tonumber(duration))
 end
 
+-- نظام تدرج عام قابل للتطبيق على أي عنصر (فريم/زر/حافة UIStroke)
+-- Library.ApplyGradient(target, {
+--     Colors    = {Color3 أو اسم لون, ...}  -- لونين أو أكثر
+--     Speed     = 6     -- ثواني لدورة دوران كاملة (أقل = أسرع)
+--     Intensity = 1      -- قوة/وضوح التدرج من 0 إلى 1
+--     Rotation  = 0      -- زاوية البداية
+-- })
+-- لو استدعيتها مرة ثانية على نفس العنصر، تضيف طبقة تدرج ثانية فوقه
+-- (بدل ما تستبدل الأولى) — لأن روبلوكس ما يدعم تدرجين فعّالين مباشرة
+-- على نفس العنصر، فنستخدم فريم شفاف إضافي فوقه يحمل الطبقة الثانية.
+function Library.ApplyGradient(target, config)
+	config = config or {}
+	local rawColors = config.Colors or { COLOR_GREEN, COLOR_PURPLE }
+	local colors = {}
+	for i, c in ipairs(rawColors) do colors[i] = resolveColor(c, COLOR_GREEN) end
+	if #colors < 2 then colors[2] = COLOR_PURPLE end
+
+	local speed = math.max(tonumber(config.Speed) or 6, 0.3)
+	local intensity = math.clamp(config.Intensity or 1, 0, 1)
+	local rotation = config.Rotation or 0
+
+	local layerCount = (target:GetAttribute("ProUI_Gradients")) or 0
+	local host = target
+	if layerCount > 0 then
+		host = Instance.new("Frame")
+		host.Name = "GradientLayer" .. (layerCount + 1)
+		host.BackgroundColor3 = Color3.new(1, 1, 1)
+		host.BackgroundTransparency = 1
+		host.BorderSizePixel = 0
+		host.Size = UDim2.new(1, 0, 1, 0)
+		host.ZIndex = (target:IsA("GuiObject") and target.ZIndex or 1) + layerCount
+		host.Parent = target
+		local srcCorner = target:FindFirstChildOfClass("UICorner")
+		if srcCorner then round(host, srcCorner.CornerRadius) end
+	end
+
+	local kps = {}
+	for i, c in ipairs(colors) do
+		kps[i] = ColorSequenceKeypoint.new(#colors > 1 and (i - 1) / (#colors - 1) or 0, c)
+	end
+
+	local grad = Instance.new("UIGradient")
+	grad.Rotation = rotation
+	grad.Color = ColorSequence.new(kps)
+	grad.Transparency = NumberSequence.new(1 - intensity)
+	grad.Parent = host
+
+	pcall(function() target:SetAttribute("ProUI_Gradients", layerCount + 1) end)
+
+	task.spawn(function()
+		while grad.Parent do
+			grad.Rotation = (grad.Rotation + 2) % 360
+			task.wait(speed / 180)
+		end
+	end)
+
+	return grad
+end
+
 -- دوال إنشاء بشكل عام: Library.CreateButton(tab, ...)
-for _, kind in ipairs({ "Button", "Toggle", "Slider", "Textbox", "Dropdown", "ColorPicker" }) do
+for _, kind in ipairs({ "Button", "Toggle", "Slider", "Textbox", "Dropdown", "ColorPicker", "Label", "Note" }) do
 	Library["Create" .. kind] = function(tab, ...)
 		if tab == Library then -- استدعاء بنقطتين
 			local realTab = ...
@@ -1092,7 +1153,11 @@ function Library.CreateWindow(config, ...)
 			end
 			name = tostring(name or "Button")
 			desc = desc ~= nil and tostring(desc) or nil
-			local wrap = Instance.new("Frame")
+			-- العنصر نفسه هو الزر القابل للضغط (بدون طبقة خفية فوقه)، عشان
+			-- تقدر تطبّق عليه تدرج بنظام Library.ApplyGradient مباشرة
+			local wrap = Instance.new("TextButton")
+			wrap.Text = ""
+			wrap.AutoButtonColor = false
 			wrap.BackgroundColor3 = Color3.new(1, 1, 1)
 			wrap.BackgroundTransparency = 0.9
 			wrap.Size = UDim2.new(1, 0, 0, desc and desc ~= "" and 52 or 36)
@@ -1105,12 +1170,7 @@ function Library.CreateWindow(config, ...)
 			grad.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.85), NumberSequenceKeypoint.new(1, 0.85) })
 			grad.Parent = wrap
 
-			local btn = Instance.new("TextButton")
-			btn.Text = ""
-			btn.BackgroundTransparency = 1
-			btn.Size = UDim2.new(1, 0, 1, 0)
-			btn.ZIndex = 8
-			btn.Parent = wrap
+			local btn = wrap
 
 			local nameLbl = Instance.new("TextLabel")
 			nameLbl.BackgroundTransparency = 1
@@ -1148,6 +1208,98 @@ function Library.CreateWindow(config, ...)
 			btn.MouseButton1Click:Connect(fire)
 			btn.TouchTap:Connect(fire)
 			return btn
+		end
+
+		----------------------------------------------------------
+		-- Label: نص بسيط بدون خلفية/زر — بس اكتب اسم التبويب + النص
+		-- Tab:CreateLabel("النص") أو Tab:CreateLabel({Text="...", Size=14, Color="Purple"})
+		function Tab:CreateLabel(text)
+			if type(text) == "table" then
+				local o = text
+				text = pick(o, "Text", "Name", "Title")
+				local lbl = Instance.new("TextLabel")
+				lbl.BackgroundTransparency = 1
+				lbl.Text = tostring(text or "")
+				lbl.Font = pick(o, "Font") or Enum.Font.Gotham
+				lbl.TextSize = pick(o, "Size", "TextSize") or 14
+				lbl.TextColor3 = resolveColor(pick(o, "Color", "TextColor"), Color3.new(1, 1, 1))
+				lbl.TextXAlignment = Enum.TextXAlignment.Left
+				lbl.TextWrapped = true
+				lbl.Size = UDim2.new(1, 0, 0, 0)
+				lbl.AutomaticSize = Enum.AutomaticSize.Y
+				lbl.ZIndex = 7
+				lbl.Parent = page
+				return lbl
+			end
+			local lbl = Instance.new("TextLabel")
+			lbl.BackgroundTransparency = 1
+			lbl.Text = tostring(text or "")
+			lbl.Font = Enum.Font.Gotham
+			lbl.TextSize = 14
+			lbl.TextColor3 = Color3.new(1, 1, 1)
+			lbl.TextXAlignment = Enum.TextXAlignment.Left
+			lbl.TextWrapped = true
+			lbl.Size = UDim2.new(1, 0, 0, 0)
+			lbl.AutomaticSize = Enum.AutomaticSize.Y
+			lbl.ZIndex = 7
+			lbl.Parent = page
+			return lbl
+		end
+
+		----------------------------------------------------------
+		-- Note: ملاحظة بأسلوب WindUI بنمطين — "Dark" و"Blue"
+		-- Tab:CreateNote("النص", "Dark") أو Tab:CreateNote("النص", "Blue")
+		function Tab:CreateNote(text, style)
+			if type(text) == "table" then
+				local o = text
+				text, style = pick(o, "Text", "Name", "Content"), pick(o, "Style", "Type")
+			end
+			text = tostring(text or "")
+			local isBlue = tostring(style or "dark"):lower() == "blue" or tostring(style or ""):lower() == "info"
+			local bg = isBlue and COLOR_BLUE or COLOR_DARK
+
+			local row = Instance.new("Frame")
+			row.BackgroundColor3 = bg
+			row.BackgroundTransparency = 0.82
+			row.Size = UDim2.new(1, 0, 0, 0)
+			row.AutomaticSize = Enum.AutomaticSize.Y
+			row.ZIndex = 7
+			row.Parent = page
+			round(row, UDim.new(0, 10))
+			stroke(row, bg, 1, 0.3)
+
+			local pad = Instance.new("UIPadding")
+			pad.PaddingLeft = UDim.new(0, 34)
+			pad.PaddingRight = UDim.new(0, 12)
+			pad.PaddingTop = UDim.new(0, 10)
+			pad.PaddingBottom = UDim.new(0, 10)
+			pad.Parent = row
+
+			local icon = Instance.new("TextLabel")
+			icon.BackgroundTransparency = 1
+			icon.Text = isBlue and "ℹ" or "★"
+			icon.Font = Enum.Font.GothamBold
+			icon.TextSize = 16
+			icon.TextColor3 = isBlue and Color3.fromRGB(150, 195, 255) or Color3.fromRGB(210, 210, 220)
+			icon.Position = UDim2.new(0, -24, 0, 0)
+			icon.Size = UDim2.new(0, 18, 0, 18)
+			icon.ZIndex = 8
+			icon.Parent = row
+
+			local lbl = Instance.new("TextLabel")
+			lbl.BackgroundTransparency = 1
+			lbl.Text = text
+			lbl.Font = Enum.Font.Gotham
+			lbl.TextSize = 13
+			lbl.TextColor3 = Color3.fromRGB(230, 230, 238)
+			lbl.TextXAlignment = Enum.TextXAlignment.Left
+			lbl.TextWrapped = true
+			lbl.Size = UDim2.new(1, 0, 0, 0)
+			lbl.AutomaticSize = Enum.AutomaticSize.Y
+			lbl.ZIndex = 8
+			lbl.Parent = row
+
+			return row
 		end
 
 		----------------------------------------------------------
@@ -1786,6 +1938,7 @@ function Library.CreateWindow(config, ...)
 		Tab.Button, Tab.Toggle, Tab.Slider = Tab.CreateButton, Tab.CreateToggle, Tab.CreateSlider
 		Tab.Input, Tab.Textbox, Tab.Dropdown = Tab.CreateTextbox, Tab.CreateTextbox, Tab.CreateDropdown
 		Tab.Colorpicker, Tab.ColorPicker = Tab.CreateColorPicker, Tab.CreateColorPicker
+		Tab.Label, Tab.Note = Tab.CreateLabel, Tab.CreateNote
 
 		Window.Tabs[name] = Tab
 		return Tab
@@ -1795,7 +1948,7 @@ function Library.CreateWindow(config, ...)
 	-- إنشاء عنصر داخل تبويب عن طريق اسم التبويب (أو كائن التبويب):
 	--   Window:CreateButton("اسم التبويب", "اسم الزر", "وصف", function() end)
 	--   Window:CreateButton({Tab = "اسم التبويب", Name = "...", Callback = function() end})
-	for _, kind in ipairs({ "Button", "Toggle", "Slider", "Textbox", "Dropdown", "ColorPicker" }) do
+	for _, kind in ipairs({ "Button", "Toggle", "Slider", "Textbox", "Dropdown", "ColorPicker", "Label", "Note" }) do
 		Window["Create" .. kind] = function(self, tab, ...)
 			local args = { ... }
 			if type(tab) == "table" and not tab.Page then
@@ -1813,6 +1966,11 @@ function Library.CreateWindow(config, ...)
 	end
 
 	Window.Open, Window.Close, Window.Minimize, Window.Delete = openUI, hideUI, toggleMinimize, deleteEverything
+
+	-- مراجع جاهزة لاستخدامها مع Library.ApplyGradient(Window.XXX, {...})
+	Window.OpenButton  = openButton         -- تدرج على زر Open
+	Window.Frame       = mainFrame          -- تدرج على جسم الواجهة
+	Window.FrameStroke = mainStroke         -- تدرج على حواف الواجهة
 
 	----------------------------------------------------------
 	-- تشغيل السبلاش الترحيبي ثم فتح الواجهة تلقائياً
@@ -1840,31 +1998,28 @@ end)
 return Library
 
 --[[
-	=====================================================================
-	 مثال استخدام (لصق هذا الجزء بسكربت خارجي بعد loadstring، وليس هنا):
-	=====================================================================
+	مثال استخدام (بسكربت منفصل بعد loadstring):
 
 	local Library = loadstring(game:HttpGet("..."))()
 
 	local Window = Library.CreateWindow({
 		Title = "الواجهة الاحترافية",
-		SubTitle = "نسخة تجريبية",
-		Theme = "Green", -- اسم لون وليس Color3
+		Theme = "Green",
 		Size = { X = 586, Y = 339 },
-		OpenButton = { Text = "OPEN", Color = "Blue" },
-		Splash = { Text = "Rwonom hub", Color = "Red" },
 	})
 
 	local MainTab = Window:CreateTab("الرئيسية", "🏠")
+	MainTab:CreateLabel("هذا نص بسيط بدون خلفية")
+	MainTab:CreateNote("هذه ملاحظة غامقة", "Dark")
+	MainTab:CreateNote("هذه ملاحظة زرقاء معلوماتية", "Blue")
 
 	MainTab:CreateButton("زر تجريبي", "يرسل إشعار عند الضغط", function()
 		Library.Notify("تم", "تم الضغط على الزر", "وصف إضافي هنا", 3)
 	end)
 
-	MainTab:CreateToggle("تفعيل الميزة", "يشغل/يوقف الميزة الفلانية", false, function(state) end)
-	MainTab:CreateSlider("المستوى", 0, 100, 50, 5, function(value) end)
-	MainTab:CreateTextbox("اسمك", "اكتب هنا...", "text", function(value) end)
-	MainTab:CreateDropdown("اختر وضع", {"سهل", "متوسط", "صعب"}, function(choice) end)
-	MainTab:CreateColorPicker("لون الميزة", Color3.fromRGB(46, 224, 150), function(color) end)
+	-- نظام التدرج العام: جرّبه على زر Open أو الإطار أو حوافه
+	Library.ApplyGradient(Window.OpenButton, { Colors = {"Green", "Purple"}, Speed = 5, Intensity = 1 })
+	Library.ApplyGradient(Window.FrameStroke, { Colors = {"Blue", "Cyan"}, Speed = 8, Intensity = 0.6 })
+	-- استدعاء ثاني على نفس العنصر = طبقة تدرج ثانية فوق الأولى
+	Library.ApplyGradient(Window.FrameStroke, { Colors = {"Red", "Orange"}, Speed = 3, Intensity = 0.4 })
 ]]
- 
