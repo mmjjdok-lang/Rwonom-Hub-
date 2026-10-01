@@ -1,83 +1,40 @@
-local function AuraForceLoad(itemsToLoad, onComplete)
-    local totalItems = 0
-    local completed = 0
-    local loadedData = {}
-
-    for name, _ in pairs(itemsToLoad) do
-        totalItems = totalItems + 1
-    end
-
-    if totalItems == 0 then
-        if onComplete then onComplete() end
-        return
-    end
-
-    -- ضغط سريع جداً ومتوازي (يقوم بتحميل كل شيء في نفس اللحظة بأقصى قوة للمعالج)
-    for name, loadFunc in pairs(itemsToLoad) do
-        task.spawn(function()
-            local success, result = pcall(loadFunc)
-            if success then
-                loadedData[name] = result
-            else
-                warn("[Aura Error] فشل في تحميل: " .. tostring(name))
-            end
-            completed = completed + 1
-        end)
-    end
-
-    -- حلقة ضغط سريعة بدون انتظار طويل لتسريع التنفيذ لأقصى حد ممكن
-    local startTime = tick()
-    while completed < totalItems do
-        -- حلقة دوران سريعة جداً بدون task.wait عشان يجبر النظام ينهي العمليات فوراً
-        -- (هنا يصير اللاج الخفيف المتعمد لحظة التحميل فقط)
-        if tick() - startTime > 5 then -- حماية لو علق شي يطلع لحاله
-            break
-        end
-    end
-
-    -- تنظيف الذاكرة الإجباري فور انتهاء التحميل (Gc garbage collection) لضمان ثبات الأداء
-    task.defer(function()
-        collectgarbage("collect")
-    end)
-
-    -- تشغيل الواجهة أو النظام بعد انتهاء الضغط مباشرة
-    if onComplete then
-        onComplete(loadedData)
-    end
-end
- 
 --[[
 	=====================================================================
-	 مكتبة واجهة احترافية شاملة - Roblox LocalScript / Module
-	 هذا الملف يحتوي فقط على "الواجهة والأنظمة" (Library) بدون أي استدعاء
-	 تلقائي - عشان لو حطيته بـ loadstring، تكتب أنت أسفله كود إنشاء
-	 النافذة والتبويبات والعناصر بنفس السكربت الخارجي بدون أي مشاكل.
+	 ProUI Library v2  -  Roblox LocalScript / Module
+	 كل الأنظمة القديمة موجودة + أنظمة جديدة بأسلوب WindUI
 
-	 مثال الاستخدام موجود بآخر الملف كـ تعليق (Comment) فقط للمرجعية.
+	 ── النظام المنفصل ─────────────────────────────────────────────
+	   Library.Splash(cfg, onDone)        -- الشعار (مستقل تماماً عن النافذة)
+	   Library.Dialog(cfg)                -- نافذة حوار بأزرار مخصصة
+	   Library.Notify(title,text,desc,duration,type)  -- إشعارات (success/error/warning/info)
+	   Library.SetLanguage("ar"/"en")
+	   Library.ApplyGradient(target, {...})
+	   Library.SaveConfig(name) / Library.LoadConfig(name) / Library.ListConfigs()
 
-	 الأنظمة المتوفرة:
-	   1) Library.CreateWindow(config)      -- إنشاء النافذة
-	   2) Window:CreateTab(name, icon)       -- تبويبات + بحث بالكلمة + أيقونات Lucide
-	   3) Tab:CreateButton(name, desc, cb)   -- زر
-	   4) Tab:CreateToggle(name, desc, def, cb) -- مفتاح تشغيل/إيقاف
-	   5) Library.Notify(title, text, desc, duration) -- إشعارات يمين تحت
-	   6) Tab:CreateSlider(name, min, max, def, speed, cb) -- سلايدر لمس/ماوس
-	   7) Tab:CreateTextbox(name, placeholder, kind, cb)   -- خانة كتابة
-	   8) Tab:CreateDropdown(name, options, cb)            -- قائمة منسدلة
-	   9) Tab:CreateColorPicker(name, defaultColor, cb)     -- منتقي ألوان
-	   10) زر Open: افتراضي أو مخصص (config.OpenButton)
-	   11) تأكيد الإغلاق (X) بنافذة Yes/No
-	   12) Library.SetLanguage("ar" / "en")  -- نظام اللغة
-	   13) سبلاش ترحيبي (Rwonom hub) قبل فتح الواجهة تلقائياً
-	   14) Tab:CreateLabel(text) / Tab:CreateNote(text, "Dark"/"Blue")
-	   15) Library.ApplyGradient(target, {Colors=, Speed=, Intensity=, Rotation=})
-	   16) أيقونات Lucide بالاسم (config.Icon بالنافذة، icon بالتبويب)
+	 ── النافذة ────────────────────────────────────────────────────
+	   Library.CreateWindow(config)
+	   Window:CreateTab(name, icon)
+	   Window:Section(name)               -- عنوان قسم بالقائمة الجانبية
+	   Window:Divider()                   -- خط فاصل بالقائمة الجانبية
+	   Window:Tag({Title=, Color=})       -- وسم بشريط العنوان
+	   Window:Dialog(cfg) / :SetTitle / :SetSubTitle / :SetToggleKey
+	   Window:SaveConfig / :LoadConfig / :ListConfigs
+
+	 ── العناصر (داخل التبويب) ──────────────────────────────────────
+	   القديمة: CreateButton, CreateToggle, CreateSlider, CreateTextbox,
+	            CreateDropdown, CreateColorPicker, CreateLabel, CreateNote
+	   الجديدة: CreateSection, CreateDivider, CreateParagraph,
+	            CreateKeybind, CreateMultiDropdown, CreateProgress, CreateCode
+	   كل عنصر يرجع كائن فيه: :Lock() :Unlock() :SetVisible(b) :Destroy()
+	                          :SetFlag("اسم") لربطه بنظام الحفظ
 	=====================================================================
 ]]
 
 local TweenService     = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Players          = game:GetService("Players")
+local HttpService      = game:GetService("HttpService")
+local TextService      = game:GetService("TextService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -102,19 +59,19 @@ local COLOR_RED    = Color3.fromRGB(225, 60, 70)
 local COLOR_ORANGE = Color3.fromRGB(255, 150, 60)
 local COLOR_PINK   = Color3.fromRGB(255, 110, 180)
 local COLOR_YELLOW = Color3.fromRGB(240, 220, 80)
-local COLOR_CYAN   = Color3.fromRGB(45, 195, 255)      -- Cyan = سماوي (أزرق سماوي)
-local COLOR_SKY    = Color3.fromRGB(110, 185, 255)     -- Sky Blue (أفتح شوي)
-local COLOR_TEAL   = Color3.fromRGB(45, 200, 185)      -- Teal / تركواز (مائل للأخضر)
-local COLOR_DARK   = Color3.fromRGB(38, 40, 46)        -- درك = أسود حديدي (Gunmetal) وليس أسود نقي
+local COLOR_CYAN   = Color3.fromRGB(45, 195, 255)
+local COLOR_SKY    = Color3.fromRGB(110, 185, 255)
+local COLOR_TEAL   = Color3.fromRGB(45, 200, 185)
+local COLOR_DARK   = Color3.fromRGB(38, 40, 46)
 local COLOR_BLACK  = Color3.fromRGB(8, 8, 10)
 local COLOR_GRAY   = Color3.fromRGB(120, 122, 132)
 local COLOR_OFF    = Color3.fromRGB(60, 62, 72)
 
--- أسماء أيقونات بأسلوب Lucide (lucide.dev) -> رمز بديل بصري
--- ملاحظة أمانة: روبلوكس ما يقدر يجيب صور مباشرة من مواقع خارجية (ImageLabel
--- يشتغل فقط مع rbxassetid://)، فهذا الجدول تقريب بصري بالرموز لأشهر أسماء
--- Lucide. لو عندك asset id حقيقي لأيقونة Lucide مرفوعة على روبلوكس، مرره
--- مباشرة كـ "rbxassetid://1234567" وبتشتغل كصورة حقيقية بدل الرمز.
+-- أيقونة الزر (Button) اللي على اليمين
+local BUTTON_RIGHT_ICON = "rbxassetid://11400928550"
+
+local CONFIG_DIR = "ProUI/configs"
+
 local LUCIDE_ICONS = {
 	home = "⌂", ["house"] = "⌂", settings = "⚙", cog = "⚙", user = "☺", ["user-round"] = "☺",
 	users = "☺☺", star = "★", heart = "♥", info = "ℹ", ["circle-alert"] = "⚠", ["triangle-alert"] = "⚠",
@@ -134,9 +91,9 @@ local LUCIDE_ICONS = {
 	rocket = "🚀", sparkles = "✦", palette = "🎨", paintbrush = "🖌", wrench = "🔧",
 	hammer = "🔨", key = "🔑", database = "🗄", server = "🖥", cloud = "☁", sliders = "🎚",
 	["toggle-left"] = "⬮", ["toggle-right"] = "⬯", circle = "●", square = "■", triangle = "▲",
+	keyboard = "⌨", copy = "⧉", ["circle-check"] = "✓", ["circle-x"] = "✕",
 }
 
--- يحدد نوع الأيقونة ويرجع {Type="Image"|"Text", Value=...}
 local function resolveIcon(name)
 	if name == nil or name == "" then return nil end
 	local s = tostring(name)
@@ -147,10 +104,9 @@ local function resolveIcon(name)
 	if LUCIDE_ICONS[key] then
 		return { Type = "Text", Value = LUCIDE_ICONS[key] }
 	end
-	return { Type = "Text", Value = s } -- اسم غير معروف أو إيموجي/حرف مرره المستخدم مباشرة
+	return { Type = "Text", Value = s }
 end
 
--- ينشئ عنصر أيقونة (صورة أو نص) بحجم ولون محددين
 local function createIconElement(parent, iconSpec, size, color)
 	if not iconSpec then return nil end
 	if iconSpec.Type == "Image" then
@@ -193,7 +149,6 @@ local NAMED_COLORS = {
 	gray = COLOR_GRAY,          ["رمادي"] = COLOR_GRAY,
 }
 
--- يرجع أول قيمة موجودة من مفاتيح متعددة (يدعم Name/Title/... الخ)
 local function pick(t, ...)
 	for _, k in ipairs({ ... }) do
 		if t[k] ~= nil then return t[k] end
@@ -213,31 +168,34 @@ end
 local EASE_SOFT   = TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local EASE_BOUNCE = TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local EASE_FAST   = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
--- إحساس ضغط سريع جداً على كل الأزرار (مو بطيء/مطوّل)
 local EASE_PRESS_DOWN = TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local EASE_PRESS_UP   = TweenInfo.new(0.16, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
 --============================================================
--- 2) نظام اللغة (بسيط - يترجم نصوص المكتبة الثابتة فقط)
+-- 2) نظام اللغة
 --============================================================
 local STRINGS = {
 	ar = {
 		close_title = "تأكيد حذف السكربت",
 		close_text = "هل تريد حذف السكربت نهائياً؟ لا يمكن التراجع بعدها.",
-		yes = "نعم", no = "لا",
+		yes = "نعم", no = "لا", ok = "موافق",
 		open_text = "OPEN",
 		search_placeholder = "بحث...",
 		pick_start = "تأكيد", pick_cancel = "إلغاء",
 		nearest_color = "أقرب اسم",
+		copy = "نسخ", copied = "تم النسخ",
+		none = "بدون",
 	},
 	en = {
 		close_title = "Confirm Script Deletion",
 		close_text = "Delete the script permanently? This cannot be undone.",
-		yes = "Yes", no = "No",
+		yes = "Yes", no = "No", ok = "OK",
 		open_text = "OPEN",
 		search_placeholder = "Search...",
 		pick_start = "Confirm", pick_cancel = "Cancel",
 		nearest_color = "Nearest",
+		copy = "Copy", copied = "Copied",
+		none = "None",
 	},
 }
 local currentLang = "ar"
@@ -349,34 +307,32 @@ local function clampFrameToScreen(frame, absX, absY)
 	return math.clamp(absX, 0, math.max(viewport.X - size.X, 0)), math.clamp(absY, 0, math.max(viewport.Y - size.Y, 0))
 end
 
--- سحب دقيق بإصبع واحد فقط (يستخدم للسلايدر ومنتقي الألوان أيضاً)
-local function makeSingleTouchDraggable(hitArea, onUpdate)
+-- سحب سريع بإصبع واحد (للسلايدر ومنتقي الألوان) — تحديث مباشر بدون Tween
+local function makeSingleTouchDraggable(hitArea, onUpdate, onBegin, onEnd)
 	local activeInput = nil
 	hitArea.InputBegan:Connect(function(input)
 		local isPointer = input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
 		if not isPointer or activeInput ~= nil then return end
 		activeInput = input
+		if onBegin then onBegin() end
 		onUpdate(input.Position)
-		input.Changed:Connect(function()
-			if input.UserInputState == Enum.UserInputState.End and activeInput == input then activeInput = nil end
-		end)
 	end)
 	UserInputService.InputChanged:Connect(function(input)
-		if activeInput ~= input then return end
-		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+		if activeInput == nil then return end
+		local isMove = input.UserInputType == Enum.UserInputType.MouseMovement
+		local isSameTouch = input == activeInput
+		if isSameTouch or (isMove and activeInput.UserInputType == Enum.UserInputType.MouseButton1) then
 			onUpdate(input.Position)
 		end
 	end)
 	UserInputService.InputEnded:Connect(function(input)
-		if activeInput == input then activeInput = nil end
+		if input == activeInput then
+			activeInput = nil
+			if onEnd then onEnd() end
+		end
 	end)
 end
 
--- سحب عام بإصبع واحد لأي Frame/زر (يستخدم لزر Open ولنافذة منتقي الألوان)
--- handle: العنصر اللي تمسكه للسحب | target: العنصر اللي يتحرك فعلياً
--- opts.Container: فريم تتحدد الحركة داخل حدوده (nil = كامل الشاشة)
--- opts.Threshold: أقل مسافة px عشان تُحسب "سحب" مو "ضغطة" (0 = فوراً سحب)
--- opts.OnDragFlag(bool): يستدعى لما تبدأ/تتأكد حالة السحب
 local function makeFrameDraggable(handle, target, opts)
 	opts = opts or {}
 	local container = opts.Container
@@ -454,7 +410,72 @@ local function nearestColorName(c)
 end
 
 --============================================================
--- 4) نظام الإشعارات (أسفل يمين الشاشة)
+-- 3.5) نظام Flags + الحفظ (Config) + أدوات مشتركة للعناصر
+--============================================================
+local Flags = {}
+
+local function registerFlag(flag, obj)
+	if flag and obj then Flags[tostring(flag)] = obj end
+end
+
+local function encodeValue(v)
+	if typeof(v) == "Color3" then return { __color = color3ToHex(v) } end
+	if typeof(v) == "EnumItem" then return { __key = v.Name } end
+	return v
+end
+
+local function decodeValue(v)
+	if type(v) == "table" then
+		if v.__color then return hexToColor3(v.__color) end
+		if v.__key then
+			local ok, e = pcall(function() return Enum.KeyCode[v.__key] end)
+			return ok and e or nil
+		end
+	end
+	return v
+end
+
+-- يضيف لأي عنصر: Lock / Unlock / SetVisible / Destroy / SetFlag
+local function attachCommon(obj, row, flag)
+	obj.Row = row
+	obj.SetVisible = function(_, v) row.Visible = v and true or false end
+	obj.Destroy = function() row:Destroy() end
+
+	local overlay
+	obj.Lock = function()
+		if overlay then return end
+		overlay = Instance.new("TextButton")
+		overlay.Text = ""
+		overlay.AutoButtonColor = false
+		overlay.BackgroundColor3 = Color3.new(0, 0, 0)
+		overlay.BackgroundTransparency = 0.55
+		overlay.Size = UDim2.new(1, 0, 1, 0)
+		overlay.ZIndex = 40
+		overlay.Parent = row
+		round(overlay, UDim.new(0, 10))
+		local lockIcon = Instance.new("TextLabel")
+		lockIcon.BackgroundTransparency = 1
+		lockIcon.Text = "🔒"
+		lockIcon.TextSize = 14
+		lockIcon.Font = Enum.Font.GothamBold
+		lockIcon.TextColor3 = Color3.new(1, 1, 1)
+		lockIcon.AnchorPoint = Vector2.new(1, 0.5)
+		lockIcon.Position = UDim2.new(1, -10, 0.5, 0)
+		lockIcon.Size = UDim2.new(0, 20, 0, 20)
+		lockIcon.ZIndex = 41
+		lockIcon.Parent = overlay
+	end
+	obj.Unlock = function()
+		if overlay then overlay:Destroy(); overlay = nil end
+	end
+	obj.SetFlag = function(self, f) registerFlag(f, self); return self end
+
+	if flag then registerFlag(flag, obj) end
+	return obj
+end
+
+--============================================================
+-- 4) نظام الإشعارات (أسفل يمين الشاشة) + أنواع
 --============================================================
 local notifRoot = Instance.new("Frame")
 notifRoot.BackgroundTransparency = 1
@@ -472,9 +493,18 @@ notifLayout.Padding = UDim.new(0, 10)
 notifLayout.SortOrder = Enum.SortOrder.LayoutOrder
 notifLayout.Parent = notifRoot
 
--- title: عنوان الإشعار | text: نص الإشعار الأساسي | desc: وصف إضافي صغير | duration: مدة البقاء بالثواني
-local function Notify(title, text, desc, duration)
+local NOTIFY_TYPES = {
+	success = { color = COLOR_GREEN,  icon = "✓" },
+	error   = { color = COLOR_RED,    icon = "✕" },
+	warning = { color = COLOR_ORANGE, icon = "⚠" },
+	info    = { color = COLOR_BLUE,   icon = "ℹ" },
+}
+
+local function Notify(title, text, desc, duration, ntype)
 	duration = duration or 3.5
+	local nt = ntype and NOTIFY_TYPES[tostring(ntype):lower()] or nil
+	local mainCol = nt and nt.color or COLOR_GREEN
+	local endCol = nt and mainCol:Lerp(Color3.new(1, 1, 1), 0.35) or COLOR_PURPLE
 
 	local card = Instance.new("Frame")
 	card.BackgroundColor3 = COLOR_DARK
@@ -485,20 +515,20 @@ local function Notify(title, text, desc, duration)
 	card.ZIndex = 101
 	card.Parent = notifRoot
 	round(card, UDim.new(0, 12))
-	local st = stroke(card, COLOR_GREEN, 1, 0.5)
+	local st = stroke(card, mainCol, 1, 0.5)
 
-	local accent = Instance.new("Frame")
-	accent.BackgroundColor3 = COLOR_GREEN
-	accent.BorderSizePixel = 0
-	accent.Size = UDim2.new(1, 0, 0, 4) -- شريط أفقي (يمين-يسار) أعلى البطاقة، مو عمودي
-	accent.Position = UDim2.new(0, 0, 0, 0)
-	accent.ZIndex = 102
-	accent.Parent = card
-	round(accent, UDim.new(0, 2))
+	local accentBar = Instance.new("Frame")
+	accentBar.BackgroundColor3 = mainCol
+	accentBar.BorderSizePixel = 0
+	accentBar.Size = UDim2.new(1, 0, 0, 4)
+	accentBar.Position = UDim2.new(0, 0, 0, 0)
+	accentBar.ZIndex = 102
+	accentBar.Parent = card
+	round(accentBar, UDim.new(0, 2))
 	local accentGrad = Instance.new("UIGradient")
-	accentGrad.Rotation = 0 -- تدرج أفقي (يمين لليسار)
-	accentGrad.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, COLOR_GREEN), ColorSequenceKeypoint.new(1, COLOR_PURPLE) })
-	accentGrad.Parent = accent
+	accentGrad.Rotation = 0
+	accentGrad.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, mainCol), ColorSequenceKeypoint.new(1, endCol) })
+	accentGrad.Parent = accentBar
 
 	local padding = Instance.new("UIPadding")
 	padding.PaddingLeft = UDim.new(0, 16)
@@ -509,7 +539,7 @@ local function Notify(title, text, desc, duration)
 
 	local titleLbl = Instance.new("TextLabel")
 	titleLbl.BackgroundTransparency = 1
-	titleLbl.Text = title or "إشعار"
+	titleLbl.Text = (nt and (nt.icon .. "  ") or "") .. (title or "إشعار")
 	titleLbl.Font = Enum.Font.GothamBold
 	titleLbl.TextSize = 15
 	titleLbl.TextColor3 = Color3.new(1, 1, 1)
@@ -580,105 +610,177 @@ local function Notify(title, text, desc, duration)
 end
 
 --============================================================
--- 5) السبلاش الترحيبي (Rwonom hub)
+-- 5) نظام Splash (الشعار) — مستقل تماماً عن النافذة
+--   يعمل بـ ScreenGui خاص فيه، تقدر تشغله قبل/بدون/بعد النافذة.
+--
+--   Library.Splash({
+--       Text = "اسم الشعار",
+--       Font = "Bangers",            -- اسم من Enum.Font أو Enum.Font.X
+--       Color = "Cyan",              -- لون الاسم
+--       BackgroundColor = "Dark",    -- لون خلفية الشعار
+--       Size = 200,                  -- حجم الشعار (بكسل)
+--       TextSize = 40,               -- حجم الخط (فاضي = تلقائي)
+--       Image = "rbxassetid://...",  -- صورة اختيارية فوق الاسم
+--       Pulses = 4,                  -- عدد النبضات
+--       Enabled = true,
+--   }, function() ... end)           -- يستدعى عند الانتهاء (اختياري)
+--
+--   يرجع كائن: handle:Wait() ينتظر الانتهاء | handle:Skip() يتخطى
 --============================================================
-local function playIntroSplash(cfg, onDone)
+local function playSplash(cfg, onDone)
+	if type(onDone) ~= "function" then onDone = nil end
 	cfg = cfg or {}
-	if cfg.Enabled == false then onDone() return end
 
-	local text = cfg.Text or "Rwonom hub"
-	local color = resolveColor(cfg.Color, COLOR_RED)
-	-- ملاحظة: "arced" ليس اسم خط رسمي داخل Roblox، استخدمت أقرب خط جاهز
-	-- بنفس الطابع الحاد/المخيف (Creepster) — تقدر تغيّره من cfg.Font
-	local font = cfg.Font or Enum.Font.Creepster
+	local handle = { Finished = false }
+	local gui
+
+	local function finish()
+		if handle.Finished then return end
+		handle.Finished = true
+		if gui then gui:Destroy() end
+		if onDone then task.spawn(onDone) end
+	end
+	function handle.Wait()
+		while not handle.Finished do task.wait() end
+	end
+	function handle.Skip()
+		finish()
+	end
+
+	if cfg.Enabled == false then
+		task.defer(finish)
+		return handle
+	end
+
+	local oldSplash = playerGui:FindFirstChild("ProUI_Splash")
+	if oldSplash then oldSplash:Destroy() end
+
+	gui = Instance.new("ScreenGui")
+	gui.Name = "ProUI_Splash"
+	gui.ResetOnSpawn = false
+	gui.IgnoreGuiInset = true
+	gui.DisplayOrder = 1000
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	gui.Parent = playerGui
+
+	local text     = tostring(pick(cfg, "Text", "Name") or "Rwonom hub")
+	local color    = resolveColor(pick(cfg, "Color", "TextColor"), COLOR_RED)
+	local bgCol    = resolveColor(pick(cfg, "BackgroundColor"), COLOR_BLACK)
+	local S        = tonumber(pick(cfg, "Size", "LogoSize")) or 170
+	local textSize = pick(cfg, "TextSize", "NameSize")
+	local pulses   = tonumber(cfg.Pulses) or 4
+	local image    = pick(cfg, "Image", "Logo")
+
+	local font = pick(cfg, "Font") or Enum.Font.Creepster
+	if type(font) == "string" then
+		local ok, f = pcall(function() return Enum.Font[font] end)
+		font = ok and f or Enum.Font.Creepster
+	end
 
 	local logo = Instance.new("Frame")
 	logo.AnchorPoint = Vector2.new(0.5, 0.5)
 	logo.Position = UDim2.new(0.5, 0, 0.5, 0)
 	logo.Size = UDim2.new(0, 0, 0, 0)
-	logo.BackgroundColor3 = Color3.fromRGB(8, 8, 10)
+	logo.BackgroundColor3 = bgCol
 	logo.BackgroundTransparency = 1
 	logo.Rotation = -180
 	logo.ZIndex = 200
-	logo.Parent = screenGui
+	logo.Parent = gui
 	round(logo, UDim.new(0, 16))
+
+	local img
+	if image then
+		img = Instance.new("ImageLabel")
+		img.BackgroundTransparency = 1
+		img.Image = tostring(image)
+		img.ImageTransparency = 1
+		img.ScaleType = Enum.ScaleType.Fit
+		img.AnchorPoint = Vector2.new(0.5, 0)
+		img.Position = UDim2.new(0.5, 0, 0.08, 0)
+		img.Size = UDim2.new(0.5, 0, 0.5, 0)
+		img.ZIndex = 201
+		img.Parent = logo
+	end
 
 	local label = Instance.new("TextLabel")
 	label.BackgroundTransparency = 1
 	label.Text = text
 	label.Font = font
-	label.TextSize = 28
 	label.TextColor3 = color
 	label.TextTransparency = 1
-	label.Size = UDim2.new(1, -10, 1, -10)
-	label.Position = UDim2.new(0, 5, 0, 5)
-	label.TextScaled = true
+	label.TextWrapped = true
+	if image then
+		label.Size = UDim2.new(1, -10, 0.34, 0)
+		label.Position = UDim2.new(0, 5, 0.62, 0)
+	else
+		label.Size = UDim2.new(1, -10, 1, -10)
+		label.Position = UDim2.new(0, 5, 0, 5)
+	end
+	if textSize then label.TextSize = tonumber(textSize) else label.TextScaled = true end
 	label.ZIndex = 201
 	label.Parent = logo
 
 	task.spawn(function()
-		-- 1) الظهور: تكبير + دوران + تلاشي دخول
 		tween(logo, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-			Size = UDim2.new(0, 170, 0, 170), Rotation = 0, BackgroundTransparency = 0,
+			Size = UDim2.new(0, S, 0, S), Rotation = 0, BackgroundTransparency = 0,
 		})
-		tween(label, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { TextTransparency = 0 })
+		tween(label, TweenInfo.new(0.6), { TextTransparency = 0 })
+		if img then tween(img, TweenInfo.new(0.6), { ImageTransparency = 0 }) end
 		task.wait(0.6)
+		if handle.Finished then return end
 
-		-- 2) نبض الاسم (تكبير/تصغير سريع متكرر) لمدة ~2.4 ثانية
-		for _ = 1, 4 do
-			tween(logo, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Size = UDim2.new(0, 184, 0, 184) })
+		for _ = 1, pulses do
+			tween(logo, TweenInfo.new(0.3, Enum.EasingStyle.Sine), { Size = UDim2.new(0, S * 1.08, 0, S * 1.08) })
 			task.wait(0.3)
-			tween(logo, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.In), { Size = UDim2.new(0, 170, 0, 170) })
+			if handle.Finished then return end
+			tween(logo, TweenInfo.new(0.3, Enum.EasingStyle.Sine), { Size = UDim2.new(0, S, 0, S) })
 			task.wait(0.3)
+			if handle.Finished then return end
 		end
 
-		-- 3) الاختفاء: دوران عكسي + تصغير حتى 0×0 + تلاشي
 		tween(logo, TweenInfo.new(1, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
 			Size = UDim2.new(0, 0, 0, 0), Rotation = 180, BackgroundTransparency = 1,
 		})
-		tween(label, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { TextTransparency = 1 })
+		tween(label, TweenInfo.new(0.7), { TextTransparency = 1 })
+		if img then tween(img, TweenInfo.new(0.7), { ImageTransparency = 1 }) end
 		task.wait(1)
-
-		logo:Destroy()
-		onDone()
+		finish()
 	end)
+
+	return handle
 end
 
 --============================================================
 -- 6) المكتبة (Library)
 --============================================================
 local Library = {}
+Library.Flags = Flags
 
--- نظام مستقل: تقدر تستدعيه بنفسك بره CreateWindow أيضاً
--- Library.PlaySplash({Text=, Color=, Font=, Enabled=}, function() ... end)
-Library.PlaySplash = playIntroSplash
+-- Splash مستقل (بأكثر من اسم)
+Library.Splash = playSplash
+Library.PlaySplash = playSplash
+Library.CreateSplash = playSplash
 
 function Library.SetLanguage(code)
 	if STRINGS[code] then currentLang = code end
 end
 
-Library.Notify = function(title, text, desc, duration, ...)
-	if title == Library then title, text, desc, duration = text, desc, duration, ... end
+Library.Notify = function(...)
+	local a = { ... }
+	if a[1] == Library then table.remove(a, 1) end
+	local title, text, desc, duration, ntype = a[1], a[2], a[3], a[4], a[5]
 	if type(title) == "table" then
 		local o = title
 		title, text = pick(o, "Title", "Name"), pick(o, "Text", "Content", "Message")
-		desc, duration = pick(o, "Desc", "Description"), pick(o, "Duration", "Time")
-	elseif type(desc) == "number" then -- (title, text, duration)
+		desc, duration, ntype = pick(o, "Desc", "Description"), pick(o, "Duration", "Time"), pick(o, "Type", "Style")
+	elseif type(desc) == "number" then -- (title, text, duration[, type])
+		if type(duration) == "string" then ntype = duration end
 		duration, desc = desc, nil
 	end
-	Notify(tostring(title or ""), tostring(text or ""), desc ~= nil and tostring(desc) or nil, tonumber(duration))
+	Notify(tostring(title or ""), tostring(text or ""), desc ~= nil and tostring(desc) or nil, tonumber(duration), ntype)
 end
 
--- نظام تدرج عام قابل للتطبيق على أي عنصر (فريم/زر/حافة UIStroke)
--- Library.ApplyGradient(target, {
---     Colors    = {Color3 أو اسم لون, ...}  -- لونين أو أكثر
---     Speed     = 6     -- ثواني لدورة دوران كاملة (أقل = أسرع)
---     Intensity = 1      -- قوة/وضوح التدرج من 0 إلى 1
---     Rotation  = 0      -- زاوية البداية
--- })
--- لو استدعيتها مرة ثانية على نفس العنصر، تضيف طبقة تدرج ثانية فوقه
--- (بدل ما تستبدل الأولى) — لأن روبلوكس ما يدعم تدرجين فعّالين مباشرة
--- على نفس العنصر، فنستخدم فريم شفاف إضافي فوقه يحمل الطبقة الثانية.
+-- نظام تدرج عام قابل للتطبيق على أي عنصر
 function Library.ApplyGradient(target, config)
 	config = config or {}
 	local rawColors = config.Colors or { COLOR_GREEN, COLOR_PURPLE }
@@ -728,10 +830,223 @@ function Library.ApplyGradient(target, config)
 	return grad
 end
 
--- دوال إنشاء بشكل عام: Library.CreateButton(tab, ...)
-for _, kind in ipairs({ "Button", "Toggle", "Slider", "Textbox", "Dropdown", "ColorPicker", "Label", "Note" }) do
+----------------------------------------------------------
+-- Dialog: نافذة حوار بأزرار مخصصة (بأسلوب WindUI)
+--   Library.Dialog({
+--       Title = "عنوان", Content = "النص", Icon = "info", Width = 300,
+--       Buttons = {
+--           { Title = "نعم", Variant = "Primary", Callback = function() end },
+--           { Title = "لا",  Variant = "Secondary" },   -- Primary/Secondary/Danger
+--       },
+--   })
+----------------------------------------------------------
+function Library.Dialog(cfg, ...)
+	if cfg == Library then cfg = ... end
+	cfg = cfg or {}
+	local title = tostring(pick(cfg, "Title", "Name") or "Dialog")
+	local content = tostring(pick(cfg, "Content", "Text", "Description") or "")
+	local iconSpec = resolveIcon(pick(cfg, "Icon"))
+	local buttons = cfg.Buttons
+	if type(buttons) ~= "table" or #buttons == 0 then
+		buttons = { { Title = T("ok"), Variant = "Primary" } }
+	end
+
+	local overlay = Instance.new("TextButton")
+	overlay.Text = ""
+	overlay.AutoButtonColor = false
+	overlay.BackgroundColor3 = Color3.new(0, 0, 0)
+	overlay.BackgroundTransparency = 1
+	overlay.Size = UDim2.new(1, 0, 1, 0)
+	overlay.ZIndex = 150
+	overlay.Parent = screenGui
+
+	local box = Instance.new("Frame")
+	box.BackgroundColor3 = COLOR_DARK
+	box.AnchorPoint = Vector2.new(0.5, 0.5)
+	box.Position = UDim2.new(0.5, 0, 0.5, 0)
+	box.Size = UDim2.new(0, tonumber(cfg.Width) or 300, 0, 0)
+	box.AutomaticSize = Enum.AutomaticSize.Y
+	box.ZIndex = 151
+	box.Parent = overlay
+	round(box, UDim.new(0, 14))
+	stroke(box, COLOR_PURPLE, 1, 0.35)
+
+	local scale = Instance.new("UIScale")
+	scale.Scale = 0.8
+	scale.Parent = box
+
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft, pad.PaddingRight = UDim.new(0, 16), UDim.new(0, 16)
+	pad.PaddingTop, pad.PaddingBottom = UDim.new(0, 16), UDim.new(0, 16)
+	pad.Parent = box
+
+	local layout = Instance.new("UIListLayout")
+	layout.Padding = UDim.new(0, 10)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = box
+
+	local header = Instance.new("Frame")
+	header.BackgroundTransparency = 1
+	header.Size = UDim2.new(1, 0, 0, 22)
+	header.LayoutOrder = 1
+	header.ZIndex = 152
+	header.Parent = box
+
+	local titleX = 0
+	if iconSpec then
+		local ic = createIconElement(header, iconSpec, 18, Color3.new(1, 1, 1))
+		ic.Position = UDim2.new(0, 0, 0, 2)
+		ic.ZIndex = 153
+		titleX = 26
+	end
+	local titleLbl = Instance.new("TextLabel")
+	titleLbl.BackgroundTransparency = 1
+	titleLbl.Text = title
+	titleLbl.Font = Enum.Font.GothamBold
+	titleLbl.TextSize = 16
+	titleLbl.TextColor3 = Color3.new(1, 1, 1)
+	titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+	titleLbl.Position = UDim2.new(0, titleX, 0, 0)
+	titleLbl.Size = UDim2.new(1, -titleX, 1, 0)
+	titleLbl.ZIndex = 153
+	titleLbl.Parent = header
+
+	if content ~= "" then
+		local contentLbl = Instance.new("TextLabel")
+		contentLbl.BackgroundTransparency = 1
+		contentLbl.Text = content
+		contentLbl.Font = Enum.Font.Gotham
+		contentLbl.TextSize = 13
+		contentLbl.TextColor3 = Color3.fromRGB(210, 210, 220)
+		contentLbl.TextXAlignment = Enum.TextXAlignment.Left
+		contentLbl.TextYAlignment = Enum.TextYAlignment.Top
+		contentLbl.TextWrapped = true
+		contentLbl.Size = UDim2.new(1, 0, 0, 0)
+		contentLbl.AutomaticSize = Enum.AutomaticSize.Y
+		contentLbl.LayoutOrder = 2
+		contentLbl.ZIndex = 152
+		contentLbl.Parent = box
+	end
+
+	local btnRow = Instance.new("Frame")
+	btnRow.BackgroundTransparency = 1
+	btnRow.Size = UDim2.new(1, 0, 0, 34)
+	btnRow.LayoutOrder = 3
+	btnRow.ZIndex = 152
+	btnRow.Parent = box
+
+	local closed = false
+	local function close()
+		if closed then return end
+		closed = true
+		tween(overlay, EASE_FAST, { BackgroundTransparency = 1 })
+		local t = tween(scale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = 0.8 })
+		t.Completed:Connect(function() overlay:Destroy() end)
+	end
+
+	local VARIANTS = { primary = COLOR_BLUE, secondary = COLOR_OFF, danger = COLOR_RED, success = COLOR_GREEN }
+	local n, spacing = #buttons, 8
+	for i, b in ipairs(buttons) do
+		local btn = Instance.new("TextButton")
+		btn.Text = tostring(pick(b, "Title", "Name", "Text") or "OK")
+		btn.Font = Enum.Font.GothamBold
+		btn.TextSize = 13
+		btn.TextColor3 = Color3.new(1, 1, 1)
+		btn.AutoButtonColor = false
+		btn.BackgroundColor3 = VARIANTS[tostring(b.Variant or (i == 1 and "primary" or "secondary")):lower()] or COLOR_OFF
+		btn.Size = UDim2.new(1 / n, -spacing * (n - 1) / n, 1, 0)
+		btn.Position = UDim2.new((i - 1) / n, (i - 1) * spacing / n, 0, 0)
+		btn.ZIndex = 153
+		btn.ClipsDescendants = true
+		btn.Parent = btnRow
+		round(btn, UDim.new(0, 8))
+		applyPressEffect(btn, 0.94)
+
+		local cb = pick(b, "Callback", "Function", "Func")
+		local function click()
+			if closed then return end
+			close()
+			if cb then
+				local ok, err = pcall(cb)
+				if not ok then warn("[ProUI Dialog Error]", err) end
+			end
+		end
+		btn.MouseButton1Click:Connect(click)
+		btn.TouchTap:Connect(click)
+	end
+
+	tween(overlay, EASE_FAST, { BackgroundTransparency = 0.45 })
+	tween(scale, EASE_BOUNCE, { Scale = 1 })
+
+	return { Close = close }
+end
+Library.Popup = Library.Dialog
+
+----------------------------------------------------------
+-- نظام حفظ/تحميل الإعدادات (يحتاج writefile/readfile بالمنفذ)
+----------------------------------------------------------
+function Library.SaveConfig(name, ...)
+	if name == Library then name = ... end
+	name = tostring(name or "default")
+	if not (writefile and makefolder) then return false, "executor has no file API" end
+	local data = {}
+	for flag, obj in pairs(Flags) do
+		if obj.Get then
+			local ok, val = pcall(obj.Get, obj)
+			if ok and val ~= nil then data[flag] = encodeValue(val) end
+		end
+	end
+	local ok, err = pcall(function()
+		if not isfolder("ProUI") then makefolder("ProUI") end
+		if not isfolder(CONFIG_DIR) then makefolder(CONFIG_DIR) end
+		writefile(CONFIG_DIR .. "/" .. name .. ".json", HttpService:JSONEncode(data))
+	end)
+	return ok, err
+end
+
+function Library.LoadConfig(name, ...)
+	if name == Library then name = ... end
+	name = tostring(name or "default")
+	if not (readfile and isfile) then return false, "executor has no file API" end
+	local path = CONFIG_DIR .. "/" .. name .. ".json"
+	local okExists, exists = pcall(isfile, path)
+	if not (okExists and exists) then return false, "config not found" end
+	local ok, data = pcall(function() return HttpService:JSONDecode(readfile(path)) end)
+	if not ok or type(data) ~= "table" then return false, "invalid config" end
+	for flag, raw in pairs(data) do
+		local obj = Flags[flag]
+		if obj and obj.Set then
+			local val = decodeValue(raw)
+			if val ~= nil then
+				local okSet, errSet = pcall(obj.Set, obj, val)
+				if not okSet then warn("[ProUI Config] " .. flag .. ":", errSet) end
+			end
+		end
+	end
+	return true
+end
+
+function Library.ListConfigs()
+	local result = {}
+	if not (listfiles and isfolder) then return result end
+	pcall(function()
+		if not isfolder(CONFIG_DIR) then return end
+		for _, path in ipairs(listfiles(CONFIG_DIR)) do
+			local fileName = tostring(path):match("([^/\\]+)%.json$")
+			if fileName then table.insert(result, fileName) end
+		end
+	end)
+	return result
+end
+
+local ELEMENT_KINDS = {
+	"Button", "Toggle", "Slider", "Textbox", "Dropdown", "MultiDropdown", "ColorPicker",
+	"Label", "Note", "Section", "Divider", "Paragraph", "Keybind", "Progress", "Code",
+}
+
+for _, kind in ipairs(ELEMENT_KINDS) do
 	Library["Create" .. kind] = function(tab, ...)
-		if tab == Library then -- استدعاء بنقطتين
+		if tab == Library then
 			local realTab = ...
 			return realTab["Create" .. kind](realTab, select(2, ...))
 		end
@@ -740,27 +1055,25 @@ for _, kind in ipairs({ "Button", "Toggle", "Slider", "Textbox", "Dropdown", "Co
 end
 
 function Library.CreateWindow(config, ...)
-	-- يدعم الاستدعاء بنقطتين أيضاً: Library:CreateWindow({...})
 	if config == Library then config = ... end
 	config = config or {}
 	local title    = config.Title or "الواجهة الاحترافية"
 	local subTitle = config.SubTitle or ""
 	local hasTheme = config.Theme ~= nil
-	local baseColor = resolveColor(config.Theme, COLOR_GREEN) -- لون جسم الواجهة (حسب اسم اللون)
-	-- لون التمييز (حواف/مفاتيح/أشرطة): لو الثيم غامق (مثل Dark) نفتّحه حتى يبان
+	local baseColor = resolveColor(config.Theme, COLOR_GREEN)
 	local lum = 0.299 * baseColor.R + 0.587 * baseColor.G + 0.114 * baseColor.B
 	local accent = lum < 0.3 and baseColor:Lerp(Color3.new(1, 1, 1), 0.55) or baseColor
 	local sizeX    = (config.Size and config.Size.X) or 586
 	local sizeY    = (config.Size and config.Size.Y) or 339
 
 	----------------------------------------------------------
-	-- زر OPEN: افتراضي أو مخصص بالكامل
+	-- زر OPEN
 	----------------------------------------------------------
 	local openCfg = config.OpenButton or {}
 	local openButton
 
 	if openCfg.Instance then
-		openButton = openCfg.Instance -- المستخدم عطى زر جاهز، نربطه فقط
+		openButton = openCfg.Instance
 	else
 		openButton = Instance.new("TextButton")
 		openButton.Name = "OpenButton"
@@ -792,12 +1105,12 @@ function Library.CreateWindow(config, ...)
 			end
 		end)
 	end
+	local openBtnSize = openButton.Size
 	applyPressEffect(openButton, 0.9)
 
-	-- زر Open قابل للسحب بإصبع واحد أو الماوس (يبقى مكانه بعد أي فتح/إغلاق)
 	local openBtnDragged = false
 	makeFrameDraggable(openButton, openButton, {
-		Threshold = 6, -- أقل من كذا = تعتبر ضغطة عادية تفتح الواجهة
+		Threshold = 6,
 		OnDragFlag = function(v) openBtnDragged = v end,
 	})
 
@@ -837,8 +1150,6 @@ function Library.CreateWindow(config, ...)
 	bgGradient.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, hasTheme and 0 or 0.25), NumberSequenceKeypoint.new(1, hasTheme and 0 or 0.25) })
 	bgGradient.Parent = mainFrame
 
-	-- ثيم محدد بالاسم: تدرج خفيف (أبيض/رمادي فاتح) حتى يبقى لون الثيم نفسه واضح
-	-- (بدون ثيم: نفس التدرج البنفسجي الافتراضي أخضر + بنفسجي)
 	local themedStates = {
 		ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)), ColorSequenceKeypoint.new(1, Color3.fromRGB(215, 215, 215)) }),
 		ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(225, 225, 225)), ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255)) }),
@@ -852,7 +1163,7 @@ function Library.CreateWindow(config, ...)
 	}, 4.5) end
 
 	----------------------------------------------------------
-	-- شريط العنوان (عنوان + وصف تحت العنوان + سحب + إغلاق)
+	-- شريط العنوان
 	----------------------------------------------------------
 	local topBar = Instance.new("Frame")
 	topBar.Size = UDim2.new(1, 0, 0, subTitle ~= "" and 54 or 46)
@@ -872,7 +1183,6 @@ function Library.CreateWindow(config, ...)
 	topBarFix.ZIndex = 6
 	topBarFix.Parent = topBar
 
-	-- أيقونة الواجهة (اسم Lucide أو rbxassetid) — تطلع يسار العنوان
 	local windowIconSpec = resolveIcon(config.Icon)
 	local titleLeftOffset = 18
 	local titleIconEl = nil
@@ -880,7 +1190,7 @@ function Library.CreateWindow(config, ...)
 		titleIconEl = createIconElement(topBar, windowIconSpec, 18, Color3.new(1, 1, 1))
 		titleIconEl.Position = UDim2.new(0, 18, 0, 6)
 		titleIconEl.ZIndex = 7
-		titleLeftOffset = 18 + 18 + 8 -- مسافة الأيقونة + فراغ بسيط
+		titleLeftOffset = 18 + 18 + 8
 	end
 
 	local titleLabel = Instance.new("TextLabel")
@@ -889,7 +1199,7 @@ function Library.CreateWindow(config, ...)
 	titleLabel.Font = Enum.Font.GothamBold
 	titleLabel.TextSize = 18
 	titleLabel.TextColor3 = Color3.new(1, 1, 1)
-	titleLabel.TextXAlignment = Enum.TextXAlignment.Left -- عنوان السكربت دايماً باليسار
+	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 	titleLabel.Position = UDim2.new(0, titleLeftOffset, 0, 4)
 	titleLabel.Size = UDim2.new(1, -(titleLeftOffset + 114), 0, 22)
 	titleLabel.ZIndex = 7
@@ -910,7 +1220,6 @@ function Library.CreateWindow(config, ...)
 		subLabel.Parent = topBar
 	end
 
-	-- ثلاثة أزرار بالعنوان (من اليمين): إخفاء كامل ← تصغير للعنوان فقط ← حذف (X)
 	local function makeTitleBarButton(text, color, xOffset)
 		local b = Instance.new("TextButton")
 		b.Text = text
@@ -928,12 +1237,12 @@ function Library.CreateWindow(config, ...)
 		return b
 	end
 
-	local deleteButton    = makeTitleBarButton("✕", COLOR_RED, -34)   -- يحذف السكربت (مع تأكيد)
-	local minimizeButton  = makeTitleBarButton("▾", COLOR_OFF, -66)   -- يصغّر للعنوان فقط
-	local hideButton      = makeTitleBarButton("–", COLOR_OFF, -98)   -- يخفي الواجهة كاملة (يرجع زر Open)
+	local deleteButton    = makeTitleBarButton("✕", COLOR_RED, -34)
+	local minimizeButton  = makeTitleBarButton("▾", COLOR_OFF, -66)
+	local hideButton      = makeTitleBarButton("–", COLOR_OFF, -98)
 
 	----------------------------------------------------------
-	-- الجسم: Sidebar (بحث + تبويبات) + منطقة الصفحات
+	-- الجسم
 	----------------------------------------------------------
 	local body = Instance.new("Frame")
 	body.BackgroundTransparency = 1
@@ -956,7 +1265,6 @@ function Library.CreateWindow(config, ...)
 	sidebarPad.PaddingRight = UDim.new(0, 8)
 	sidebarPad.Parent = sidebar
 
-	-- خانة بحث عن تبويب بالكلمة
 	local searchBox = Instance.new("TextBox")
 	searchBox.PlaceholderText = T("search_placeholder")
 	searchBox.Text = ""
@@ -976,10 +1284,15 @@ function Library.CreateWindow(config, ...)
 	sbPad.PaddingLeft = UDim.new(0, 8)
 	sbPad.Parent = searchBox
 
-	local tabListWrap = Instance.new("Frame")
+	-- قائمة التبويبات صارت قابلة للتمرير (لو التبويبات كثيرة)
+	local tabListWrap = Instance.new("ScrollingFrame")
 	tabListWrap.BackgroundTransparency = 1
+	tabListWrap.BorderSizePixel = 0
 	tabListWrap.Size = UDim2.new(1, 0, 1, -32)
 	tabListWrap.Position = UDim2.new(0, 0, 0, 32)
+	tabListWrap.ScrollBarThickness = 2
+	tabListWrap.CanvasSize = UDim2.new(0, 0, 0, 0)
+	tabListWrap.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	tabListWrap.ZIndex = 6
 	tabListWrap.Parent = sidebar
 
@@ -995,16 +1308,23 @@ function Library.CreateWindow(config, ...)
 	pagesHolder.ZIndex = 6
 	pagesHolder.Parent = body
 
-	local allTabButtons = {} -- {button=..., name=...}
+	local sideOrder = 0
+	local function nextSideOrder() sideOrder = sideOrder + 1; return sideOrder end
+
+	local allTabButtons = {} -- {button=, name=, isDecor=}
 	searchBox:GetPropertyChangedSignal("Text"):Connect(function()
 		local q = searchBox.Text:lower()
 		for _, entry in ipairs(allTabButtons) do
-			entry.button.Visible = q == "" or entry.name:lower():find(q, 1, true) ~= nil
+			if entry.isDecor then
+				entry.button.Visible = q == ""
+			else
+				entry.button.Visible = q == "" or entry.name:lower():find(q, 1, true) ~= nil
+			end
 		end
 	end)
 
 	----------------------------------------------------------
-	-- نافذة تأكيد الإغلاق (Yes / No)
+	-- نافذة تأكيد الإغلاق
 	----------------------------------------------------------
 	local confirmOverlay = Instance.new("Frame")
 	confirmOverlay.BackgroundColor3 = Color3.new(0, 0, 0)
@@ -1076,9 +1396,9 @@ function Library.CreateWindow(config, ...)
 	applyPressEffect(noBtn, 0.9)
 
 	----------------------------------------------------------
-	-- سحب بإصبع واحد + تثبيت داخل الشاشة
+	-- سحب الواجهة
 	----------------------------------------------------------
-	local openPopupCount = 0 -- >0 يعني فيه نافذة منبثقة (مثل منتقي الألوان) مفتوحة، فنجمّد سحب الواجهة الرئيسية
+	local openPopupCount = 0
 	local activeDragInput, dragStartInputPos, dragStartAbsPos = nil, nil, nil
 	topBar.InputBegan:Connect(function(input)
 		local isPointer = input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
@@ -1110,7 +1430,7 @@ function Library.CreateWindow(config, ...)
 	end)
 
 	----------------------------------------------------------
-	-- فتح / إغلاق (مع تأكيد الإغلاق)
+	-- فتح / إغلاق
 	----------------------------------------------------------
 	local isOpen, isMinimized = false, false
 	local fullHeight, collapsedHeight = sizeY, topBar.Size.Y.Offset
@@ -1119,7 +1439,7 @@ function Library.CreateWindow(config, ...)
 		if isOpen then return end
 		isOpen = true
 		tween(openButton, EASE_FAST, { Size = UDim2.new(0, 0, 0, 0) })
-		task.delay(0.15, function() openButton.Visible = false end)
+		task.delay(0.15, function() if isOpen then openButton.Visible = false end end)
 
 		mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 		mainFrame.Size = UDim2.new(0, 0, 0, 0)
@@ -1133,21 +1453,20 @@ function Library.CreateWindow(config, ...)
 		tween(glow, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { ImageTransparency = 0.55 })
 	end
 
-	-- (1) إخفاء الواجهة بالكامل: يرجّع زر Open العائم
 	local function hideUI()
 		isOpen = false
 		local t = tween(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In), { Size = UDim2.new(0, 0, 0, 0), Rotation = 8 })
 		tween(glow, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { ImageTransparency = 1 })
 		t.Completed:Connect(function()
+			if isOpen then return end
 			mainFrame.Visible = false
 			mainFrame.Rotation = 0
 			openButton.Visible = true
 			openButton.Size = UDim2.new(0, 0, 0, 0)
-			tween(openButton, EASE_BOUNCE, { Size = openCfg.Size or UDim2.new(0, 110, 0, 42) })
+			tween(openButton, EASE_BOUNCE, { Size = openBtnSize })
 		end)
 	end
 
-	-- (2) تصغير للعنوان فقط (Minimize) ← لو فكيته يرجع الإطار والعنوان يرتفع لمكانه
 	local function toggleMinimize()
 		isMinimized = not isMinimized
 		if isMinimized then
@@ -1165,7 +1484,6 @@ function Library.CreateWindow(config, ...)
 		end
 	end
 
-	-- (3) حذف السكربت نهائياً (بعد تأكيد)
 	local function deleteEverything()
 		screenGui:Destroy()
 	end
@@ -1200,20 +1518,93 @@ function Library.CreateWindow(config, ...)
 	deleteButton.MouseButton1Click:Connect(askDeleteConfirmation)
 	deleteButton.TouchTap:Connect(askDeleteConfirmation)
 
+	-- مفتاح إظهار/إخفاء الواجهة (config.ToggleKey أو Window:SetToggleKey)
+	local toggleKey = nil
+	local function toKeyCode(k)
+		if typeof(k) == "EnumItem" then return k end
+		if type(k) == "string" then
+			local ok, e = pcall(function() return Enum.KeyCode[k] end)
+			return ok and e or nil
+		end
+		return nil
+	end
+	toggleKey = toKeyCode(config.ToggleKey)
+	UserInputService.InputBegan:Connect(function(input, gp)
+		if gp or not toggleKey then return end
+		if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == toggleKey then
+			if isOpen then hideUI() else openUI() end
+		end
+	end)
+
 	----------------------------------------------------------
 	-- كائن النافذة + نظام التبويبات
 	----------------------------------------------------------
 	local Window = { Tabs = {} }
 	local activeTabButton, activeTabPage, activeTabBar = nil, nil, nil
 
+	-- عنوان قسم بالقائمة الجانبية (يفصل مجموعات التبويبات)
+	function Window:Section(text)
+		if type(text) == "table" then text = pick(text, "Title", "Name", "Text") end
+		local lbl = Instance.new("TextLabel")
+		lbl.BackgroundTransparency = 1
+		lbl.Text = tostring(text or ""):upper()
+		lbl.Font = Enum.Font.GothamBold
+		lbl.TextSize = 10
+		lbl.TextColor3 = Color3.fromRGB(170, 170, 185)
+		lbl.TextXAlignment = Enum.TextXAlignment.Left
+		lbl.Size = UDim2.new(1, 0, 0, 18)
+		lbl.LayoutOrder = nextSideOrder()
+		lbl.ZIndex = 7
+		lbl.Parent = tabListWrap
+		table.insert(allTabButtons, { button = lbl, name = "", isDecor = true })
+		return lbl
+	end
+
+	-- خط فاصل بالقائمة الجانبية
+	function Window:Divider()
+		local line = Instance.new("Frame")
+		line.BackgroundColor3 = Color3.new(1, 1, 1)
+		line.BackgroundTransparency = 0.85
+		line.BorderSizePixel = 0
+		line.Size = UDim2.new(1, 0, 0, 1)
+		line.LayoutOrder = nextSideOrder()
+		line.ZIndex = 7
+		line.Parent = tabListWrap
+		table.insert(allTabButtons, { button = line, name = "", isDecor = true })
+		return line
+	end
+
+	-- وسم صغير بشريط العنوان:  Window:Tag({Title="v2.0", Color="Blue"})
+	local tagCursor = 106
+	function Window:Tag(cfg)
+		if type(cfg) ~= "table" then cfg = { Title = cfg } end
+		local text = tostring(pick(cfg, "Title", "Name", "Text") or "TAG")
+		local col = resolveColor(pick(cfg, "Color"), COLOR_BLUE)
+		local w = TextService:GetTextSize(text, 11, Enum.Font.GothamBold, Vector2.new(1000, 100)).X + 14
+		local tag = Instance.new("TextLabel")
+		tag.BackgroundColor3 = col
+		tag.BackgroundTransparency = 0.25
+		tag.Text = text
+		tag.Font = Enum.Font.GothamBold
+		tag.TextSize = 11
+		tag.TextColor3 = Color3.new(1, 1, 1)
+		tag.AnchorPoint = Vector2.new(0, 0.5)
+		tag.Position = UDim2.new(1, -(tagCursor + w), 0.5, 0)
+		tag.Size = UDim2.new(0, w, 0, 18)
+		tag.ZIndex = 7
+		tag.Parent = topBar
+		round(tag, UDim.new(0, 6))
+		tagCursor = tagCursor + w + 6
+		return tag
+	end
+
 	function Window:CreateTab(name, icon)
-		if type(name) == "table" then -- دعم الشكل: CreateTab({Name=..., Icon=...})
+		if type(name) == "table" then
 			icon = pick(name, "Icon")
 			name = pick(name, "Name", "Title")
 		end
 		name = tostring(name or "Tab")
 		local tabButton = Instance.new("TextButton")
-		-- دعم أيقونات Lucide بالاسم (home, settings, user...) أو rbxassetid أو إيموجي مباشر
 		local tabIconSpec = resolveIcon(icon)
 		if tabIconSpec and tabIconSpec.Type == "Image" then
 			tabButton.Text = name
@@ -1235,6 +1626,7 @@ function Library.CreateWindow(config, ...)
 		tabButton.BackgroundColor3 = Color3.new(1, 1, 1)
 		tabButton.BackgroundTransparency = 1
 		tabButton.Size = UDim2.new(1, 0, 0, 34)
+		tabButton.LayoutOrder = nextSideOrder()
 		tabButton.ZIndex = 7
 		tabButton.Parent = tabListWrap
 		round(tabButton, UDim.new(0, 9))
@@ -1253,6 +1645,7 @@ function Library.CreateWindow(config, ...)
 
 		local page = Instance.new("ScrollingFrame")
 		page.BackgroundTransparency = 1
+		page.BorderSizePixel = 0
 		page.Size = UDim2.new(1, 0, 1, 0)
 		page.ScrollBarThickness = 3
 		page.ScrollBarImageColor3 = COLOR_PURPLE
@@ -1285,33 +1678,45 @@ function Library.CreateWindow(config, ...)
 		if not activeTabButton then selectThisTab() end
 
 		----------------------------------------------------------
+		-- Button: إطار مرتب مثل التوجل + أيقونة على اليمين
+		----------------------------------------------------------
 		function Tab:CreateButton(name, desc, callback)
+			local flag, iconOverride
 			if type(name) == "table" then
 				local o = name
 				name, desc, callback = pick(o, "Name", "Title", "Text"), pick(o, "Desc", "Description"), pick(o, "Callback", "Function", "Func")
+				flag, iconOverride = pick(o, "Flag"), pick(o, "Icon")
 			elseif type(desc) == "function" then
 				callback, desc = desc, nil
 			end
 			name = tostring(name or "Button")
 			desc = desc ~= nil and tostring(desc) or nil
-			-- العنصر نفسه هو الزر القابل للضغط (بدون طبقة خفية فوقه)، عشان
-			-- تقدر تطبّق عليه تدرج بنظام Library.ApplyGradient مباشرة
-			local wrap = Instance.new("TextButton")
-			wrap.Text = ""
-			wrap.AutoButtonColor = false
-			wrap.BackgroundColor3 = Color3.new(1, 1, 1)
-			wrap.BackgroundTransparency = 0.9
-			wrap.Size = UDim2.new(1, 0, 0, desc and desc ~= "" and 52 or 36)
-			wrap.ZIndex = 7
-			wrap.Parent = page
-			round(wrap, UDim.new(0, 10))
-			stroke(wrap, accent, 1, 0.75)
+			local hasDesc = desc and desc ~= ""
+
+			local row = Instance.new("Frame")
+			row.BackgroundColor3 = Color3.new(1, 1, 1)
+			row.BackgroundTransparency = 0.93
+			row.Size = UDim2.new(1, 0, 0, hasDesc and 60 or 44)
+			row.ZIndex = 7
+			row.Parent = page
+			round(row, UDim.new(0, 10))
+
+			local btn = Instance.new("TextButton")
+			btn.Text = ""
+			btn.AutoButtonColor = false
+			btn.BackgroundColor3 = Color3.new(1, 1, 1)
+			btn.BackgroundTransparency = 0.88
+			btn.Position = UDim2.new(0, 6, 0, 6)
+			btn.Size = UDim2.new(1, -12, 1, -12)
+			btn.ClipsDescendants = true
+			btn.ZIndex = 8
+			btn.Parent = row
+			round(btn, UDim.new(0, 8))
+			stroke(btn, accent, 1, 0.6)
 			local grad = Instance.new("UIGradient")
 			grad.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, COLOR_GREEN), ColorSequenceKeypoint.new(1, COLOR_PURPLE) })
-			grad.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.85), NumberSequenceKeypoint.new(1, 0.85) })
-			grad.Parent = wrap
-
-			local btn = wrap
+			grad.Transparency = NumberSequence.new(0.8)
+			grad.Parent = btn
 
 			local nameLbl = Instance.new("TextLabel")
 			nameLbl.BackgroundTransparency = 1
@@ -1320,26 +1725,35 @@ function Library.CreateWindow(config, ...)
 			nameLbl.TextSize = 14
 			nameLbl.TextColor3 = Color3.new(1, 1, 1)
 			nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-			nameLbl.Position = UDim2.new(0, 12, 0, 6)
-			nameLbl.Size = UDim2.new(1, -24, 0, 18)
-			nameLbl.ZIndex = 8
-			nameLbl.Parent = wrap
+			nameLbl.Position = UDim2.new(0, 12, 0, hasDesc and 4 or 0)
+			nameLbl.Size = UDim2.new(1, -52, 0, hasDesc and 18 or 32)
+			nameLbl.ZIndex = 9
+			nameLbl.Parent = btn
 
-			if desc and desc ~= "" then
-				local descLbl = Instance.new("TextLabel")
+			local descLbl
+			if hasDesc then
+				descLbl = Instance.new("TextLabel")
 				descLbl.BackgroundTransparency = 1
 				descLbl.Text = desc
 				descLbl.Font = Enum.Font.Gotham
 				descLbl.TextSize = 11
 				descLbl.TextColor3 = Color3.fromRGB(210, 210, 220)
 				descLbl.TextXAlignment = Enum.TextXAlignment.Left
-				descLbl.Position = UDim2.new(0, 12, 0, 26)
-				descLbl.Size = UDim2.new(1, -24, 0, 18)
-				descLbl.ZIndex = 8
-				descLbl.Parent = wrap
+				descLbl.Position = UDim2.new(0, 12, 0, 22)
+				descLbl.Size = UDim2.new(1, -52, 0, 16)
+				descLbl.ZIndex = 9
+				descLbl.Parent = btn
 			end
 
-			applyPressEffect(btn, 0.95)
+			-- الأيقونة على اليمين (الافتراضية 11400928550 أو مخصصة بـ Icon)
+			local rightSpec = resolveIcon(iconOverride) or { Type = "Image", Value = BUTTON_RIGHT_ICON }
+			local rightIcon = createIconElement(btn, rightSpec, 20, Color3.new(1, 1, 1))
+			if rightSpec.Type == "Image" then rightIcon.ImageColor3 = Color3.new(1, 1, 1) end
+			rightIcon.AnchorPoint = Vector2.new(1, 0.5)
+			rightIcon.Position = UDim2.new(1, -10, 0.5, 0)
+			rightIcon.ZIndex = 9
+
+			applyPressEffect(btn, 0.96)
 			local function fire()
 				if callback then
 					local ok, err = pcall(callback)
@@ -1348,12 +1762,19 @@ function Library.CreateWindow(config, ...)
 			end
 			btn.MouseButton1Click:Connect(fire)
 			btn.TouchTap:Connect(fire)
-			return btn
+
+			local obj = {
+				Button = btn,
+				SetTitle = function(_, t) nameLbl.Text = tostring(t) end,
+				SetDesc = function(_, t) if descLbl then descLbl.Text = tostring(t) end end,
+				Fire = fire,
+			}
+			return attachCommon(obj, row, flag)
 		end
 
 		----------------------------------------------------------
-		-- Label: نص بسيط بدون خلفية/زر — بس اكتب اسم التبويب + النص
-		-- Tab:CreateLabel("النص") أو Tab:CreateLabel({Text="...", Size=14, Color="Purple"})
+		-- Label: نص بسيط بدون خلفية
+		----------------------------------------------------------
 		function Tab:CreateLabel(text)
 			if type(text) == "table" then
 				local o = text
@@ -1388,16 +1809,25 @@ function Library.CreateWindow(config, ...)
 		end
 
 		----------------------------------------------------------
-		-- Note: ملاحظة بأسلوب WindUI بنمطين — "Dark" و"Blue"
-		-- Tab:CreateNote("النص", "Dark") أو Tab:CreateNote("النص", "Blue")
+		-- Note: "Dark" / "Blue" (الأساسيين) + Success / Warning / Error
+		----------------------------------------------------------
 		function Tab:CreateNote(text, style)
 			if type(text) == "table" then
 				local o = text
 				text, style = pick(o, "Text", "Name", "Content"), pick(o, "Style", "Type")
 			end
 			text = tostring(text or "")
-			local isBlue = tostring(style or "dark"):lower() == "blue" or tostring(style or ""):lower() == "info"
-			local bg = isBlue and COLOR_BLUE or COLOR_DARK
+			local st = tostring(style or "dark"):lower()
+			local bg, iconChar, iconCol = COLOR_DARK, "★", Color3.fromRGB(210, 210, 220)
+			if st == "blue" or st == "info" then
+				bg, iconChar, iconCol = COLOR_BLUE, "ℹ", Color3.fromRGB(150, 195, 255)
+			elseif st == "green" or st == "success" then
+				bg, iconChar, iconCol = COLOR_GREEN, "✓", Color3.fromRGB(180, 255, 220)
+			elseif st == "orange" or st == "warning" then
+				bg, iconChar, iconCol = COLOR_ORANGE, "⚠", Color3.fromRGB(255, 220, 170)
+			elseif st == "red" or st == "error" then
+				bg, iconChar, iconCol = COLOR_RED, "✕", Color3.fromRGB(255, 190, 195)
+			end
 
 			local row = Instance.new("Frame")
 			row.BackgroundColor3 = bg
@@ -1418,10 +1848,10 @@ function Library.CreateWindow(config, ...)
 
 			local icon = Instance.new("TextLabel")
 			icon.BackgroundTransparency = 1
-			icon.Text = isBlue and "ℹ" or "★"
+			icon.Text = iconChar
 			icon.Font = Enum.Font.GothamBold
 			icon.TextSize = 16
-			icon.TextColor3 = isBlue and Color3.fromRGB(150, 195, 255) or Color3.fromRGB(210, 210, 220)
+			icon.TextColor3 = iconCol
 			icon.Position = UDim2.new(0, -24, 0, 0)
 			icon.Size = UDim2.new(0, 18, 0, 18)
 			icon.ZIndex = 8
@@ -1444,19 +1874,159 @@ function Library.CreateWindow(config, ...)
 		end
 
 		----------------------------------------------------------
+		-- Section: عنوان قسم داخل التبويب
+		----------------------------------------------------------
+		function Tab:CreateSection(text)
+			if type(text) == "table" then text = pick(text, "Text", "Title", "Name") end
+			local row = Instance.new("Frame")
+			row.BackgroundTransparency = 1
+			row.Size = UDim2.new(1, 0, 0, 26)
+			row.ZIndex = 7
+			row.Parent = page
+
+			local lbl = Instance.new("TextLabel")
+			lbl.BackgroundTransparency = 1
+			lbl.Text = tostring(text or "")
+			lbl.Font = Enum.Font.GothamBold
+			lbl.TextSize = 13
+			lbl.TextColor3 = accent
+			lbl.TextXAlignment = Enum.TextXAlignment.Left
+			lbl.Position = UDim2.new(0, 4, 0, 0)
+			lbl.Size = UDim2.new(1, -8, 1, -4)
+			lbl.ZIndex = 8
+			lbl.Parent = row
+
+			local line = Instance.new("Frame")
+			line.BackgroundColor3 = Color3.new(1, 1, 1)
+			line.BackgroundTransparency = 0.85
+			line.BorderSizePixel = 0
+			line.Position = UDim2.new(0, 0, 1, -2)
+			line.Size = UDim2.new(1, 0, 0, 1)
+			line.ZIndex = 8
+			line.Parent = row
+
+			return attachCommon({ SetText = function(_, t) lbl.Text = tostring(t) end }, row)
+		end
+
+		----------------------------------------------------------
+		-- Divider: خط فاصل
+		----------------------------------------------------------
+		function Tab:CreateDivider()
+			local row = Instance.new("Frame")
+			row.BackgroundTransparency = 1
+			row.Size = UDim2.new(1, 0, 0, 8)
+			row.ZIndex = 7
+			row.Parent = page
+			local line = Instance.new("Frame")
+			line.BackgroundColor3 = Color3.new(1, 1, 1)
+			line.BackgroundTransparency = 0.85
+			line.BorderSizePixel = 0
+			line.AnchorPoint = Vector2.new(0, 0.5)
+			line.Position = UDim2.new(0, 0, 0.5, 0)
+			line.Size = UDim2.new(1, 0, 0, 1)
+			line.ZIndex = 8
+			line.Parent = row
+			return attachCommon({}, row)
+		end
+
+		----------------------------------------------------------
+		-- Paragraph: عنوان + نص طويل (+ أيقونة اختيارية)
+		----------------------------------------------------------
+		function Tab:CreateParagraph(title, desc, icon)
+			if type(title) == "table" then
+				local o = title
+				title, desc, icon = pick(o, "Title", "Name"), pick(o, "Desc", "Content", "Text", "Description"), pick(o, "Icon")
+			end
+			title = tostring(title or "")
+			desc = desc ~= nil and tostring(desc) or ""
+
+			local row = Instance.new("Frame")
+			row.BackgroundColor3 = Color3.new(1, 1, 1)
+			row.BackgroundTransparency = 0.93
+			row.Size = UDim2.new(1, 0, 0, 0)
+			row.AutomaticSize = Enum.AutomaticSize.Y
+			row.ZIndex = 7
+			row.Parent = page
+			round(row, UDim.new(0, 10))
+
+			local pad = Instance.new("UIPadding")
+			pad.PaddingLeft, pad.PaddingRight = UDim.new(0, 12), UDim.new(0, 12)
+			pad.PaddingTop, pad.PaddingBottom = UDim.new(0, 10), UDim.new(0, 10)
+			pad.Parent = row
+			local lay = Instance.new("UIListLayout")
+			lay.Padding = UDim.new(0, 4)
+			lay.SortOrder = Enum.SortOrder.LayoutOrder
+			lay.Parent = row
+
+			local header = Instance.new("Frame")
+			header.BackgroundTransparency = 1
+			header.Size = UDim2.new(1, 0, 0, 20)
+			header.LayoutOrder = 1
+			header.ZIndex = 8
+			header.Parent = row
+
+			local tx = 0
+			local iconSpec = resolveIcon(icon)
+			if iconSpec then
+				local ic = createIconElement(header, iconSpec, 16, Color3.new(1, 1, 1))
+				ic.Position = UDim2.new(0, 0, 0, 2)
+				ic.ZIndex = 9
+				tx = 24
+			end
+			local titleLbl = Instance.new("TextLabel")
+			titleLbl.BackgroundTransparency = 1
+			titleLbl.Text = title
+			titleLbl.Font = Enum.Font.GothamBold
+			titleLbl.TextSize = 14
+			titleLbl.TextColor3 = Color3.new(1, 1, 1)
+			titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+			titleLbl.Position = UDim2.new(0, tx, 0, 0)
+			titleLbl.Size = UDim2.new(1, -tx, 1, 0)
+			titleLbl.ZIndex = 9
+			titleLbl.Parent = header
+
+			local descLbl = Instance.new("TextLabel")
+			descLbl.BackgroundTransparency = 1
+			descLbl.Text = desc
+			descLbl.Font = Enum.Font.Gotham
+			descLbl.TextSize = 12
+			descLbl.TextColor3 = Color3.fromRGB(210, 210, 220)
+			descLbl.TextXAlignment = Enum.TextXAlignment.Left
+			descLbl.TextYAlignment = Enum.TextYAlignment.Top
+			descLbl.TextWrapped = true
+			descLbl.Size = UDim2.new(1, 0, 0, 0)
+			descLbl.AutomaticSize = Enum.AutomaticSize.Y
+			descLbl.LayoutOrder = 2
+			descLbl.Visible = desc ~= ""
+			descLbl.ZIndex = 8
+			descLbl.Parent = row
+
+			return attachCommon({
+				SetTitle = function(_, t) titleLbl.Text = tostring(t) end,
+				SetDesc = function(_, t) descLbl.Text = tostring(t); descLbl.Visible = tostring(t) ~= "" end,
+			}, row)
+		end
+
+		----------------------------------------------------------
+		-- Toggle: Switch (الافتراضي) أو Checkbox (Type = "Checkbox")
+		----------------------------------------------------------
 		function Tab:CreateToggle(name, desc, default, callback)
+			local flag, style
 			if type(name) == "table" then
 				local o = name
 				name, desc = pick(o, "Name", "Title", "Text"), pick(o, "Desc", "Description")
 				default, callback = pick(o, "Default", "Value", "State"), pick(o, "Callback", "Function", "Func")
-			elseif type(desc) == "function" then -- (name, callback)
+				flag, style = pick(o, "Flag"), pick(o, "Type", "Style")
+			elseif type(desc) == "function" then
 				callback, default, desc = desc, false, nil
-			elseif type(desc) == "boolean" then -- (name, default, callback)
+			elseif type(desc) == "boolean" then
 				callback, default, desc = default, desc, nil
 			end
 			name = tostring(name or "Toggle")
 			desc = desc ~= nil and tostring(desc) or nil
 			default = default and true or false
+			local isCheck = tostring(style or ""):lower() == "checkbox"
+
 			local row = Instance.new("Frame")
 			row.BackgroundColor3 = Color3.new(1, 1, 1)
 			row.BackgroundTransparency = 0.93
@@ -1495,25 +2065,44 @@ function Library.CreateWindow(config, ...)
 			pill.Text = ""
 			pill.AutoButtonColor = false
 			pill.BackgroundColor3 = COLOR_OFF
-			pill.Size = UDim2.new(0, 46, 0, 24)
 			pill.AnchorPoint = Vector2.new(1, 0.5)
 			pill.Position = UDim2.new(1, -12, 0.5, 0)
 			pill.ZIndex = 8
 			pill.Parent = row
-			round(pill, UDim.new(1, 0))
 
-			local knob = Instance.new("Frame")
-			knob.BackgroundColor3 = Color3.new(1, 1, 1)
-			knob.Size = UDim2.new(0, 18, 0, 18)
-			knob.AnchorPoint = Vector2.new(0, 0.5)
-			knob.Position = UDim2.new(0, 3, 0.5, 0)
-			knob.ZIndex = 9
-			knob.Parent = pill
-			round(knob, UDim.new(1, 0))
+			local knob, checkMark
+			if isCheck then
+				pill.Size = UDim2.new(0, 24, 0, 24)
+				round(pill, UDim.new(0, 7))
+				checkMark = Instance.new("TextLabel")
+				checkMark.BackgroundTransparency = 1
+				checkMark.Text = "✓"
+				checkMark.Font = Enum.Font.GothamBold
+				checkMark.TextSize = 16
+				checkMark.TextColor3 = Color3.new(1, 1, 1)
+				checkMark.TextTransparency = 1
+				checkMark.Size = UDim2.new(1, 0, 1, 0)
+				checkMark.ZIndex = 9
+				checkMark.Parent = pill
+			else
+				pill.Size = UDim2.new(0, 46, 0, 24)
+				round(pill, UDim.new(1, 0))
+				knob = Instance.new("Frame")
+				knob.BackgroundColor3 = Color3.new(1, 1, 1)
+				knob.Size = UDim2.new(0, 18, 0, 18)
+				knob.AnchorPoint = Vector2.new(0, 0.5)
+				knob.Position = UDim2.new(0, 3, 0.5, 0)
+				knob.ZIndex = 9
+				knob.Parent = pill
+				round(knob, UDim.new(1, 0))
+			end
 
 			local state = default
 			local function applyState(fire)
-				if state then
+				if isCheck then
+					tween(pill, EASE_SOFT, { BackgroundColor3 = state and accent or COLOR_OFF })
+					tween(checkMark, EASE_FAST, { TextTransparency = state and 0 or 1 })
+				elseif state then
 					tween(pill, EASE_SOFT, { BackgroundColor3 = accent })
 					tween(knob, EASE_BOUNCE, { Position = UDim2.new(1, -21, 0.5, 0) })
 				else
@@ -1531,11 +2120,18 @@ function Library.CreateWindow(config, ...)
 			pill.TouchTap:Connect(flip)
 			applyPressEffect(pill, 0.9)
 
-			return { Set = function(_, v) state = v and true or false; applyState(true) end, Get = function() return state end }
+			local obj = {
+				Set = function(_, v) state = v and true or false; applyState(true) end,
+				Get = function() return state end,
+			}
+			return attachCommon(obj, row, flag)
 		end
 
 		----------------------------------------------------------
+		-- Slider: سلس وسريع (بدون Tween أثناء السحب + منطقة لمس كبيرة)
+		----------------------------------------------------------
 		function Tab:CreateSlider(name, min, max, default, speed, callback)
+			local flag, suffix
 			if type(name) == "table" then
 				local o = name
 				local v = pick(o, "Value")
@@ -1545,11 +2141,13 @@ function Library.CreateWindow(config, ...)
 					min, max, default = pick(o, "Min"), pick(o, "Max"), pick(o, "Default", "Value")
 				end
 				speed, callback = pick(o, "Speed", "Step", "Increment"), pick(o, "Callback", "Function", "Func")
+				flag, suffix = pick(o, "Flag"), pick(o, "Suffix")
 				name = pick(o, "Name", "Title", "Text")
-			elseif type(speed) == "function" then -- (name, min, max, default, callback)
+			elseif type(speed) == "function" then
 				callback, speed = speed, 1
 			end
 			name = tostring(name or "Slider")
+			suffix = suffix and tostring(suffix) or ""
 			min, max, speed = tonumber(min) or 0, tonumber(max) or 100, tonumber(speed) or 1
 			if speed <= 0 then speed = 1 end
 			default = math.clamp(default or min, min, max)
@@ -1570,19 +2168,19 @@ function Library.CreateWindow(config, ...)
 			label.TextColor3 = Color3.new(1, 1, 1)
 			label.TextXAlignment = Enum.TextXAlignment.Left
 			label.Position = UDim2.new(0, 12, 0, 6)
-			label.Size = UDim2.new(1, -70, 0, 18)
+			label.Size = UDim2.new(1, -90, 0, 18)
 			label.ZIndex = 8
 			label.Parent = row
 
 			local valueLabel = Instance.new("TextLabel")
 			valueLabel.BackgroundTransparency = 1
-			valueLabel.Text = tostring(default)
+			valueLabel.Text = tostring(default) .. suffix
 			valueLabel.Font = Enum.Font.GothamBold
 			valueLabel.TextSize = 13
 			valueLabel.TextColor3 = accent
 			valueLabel.TextXAlignment = Enum.TextXAlignment.Right
-			valueLabel.Position = UDim2.new(1, -60, 0, 6)
-			valueLabel.Size = UDim2.new(0, 48, 0, 18)
+			valueLabel.Position = UDim2.new(1, -78, 0, 6)
+			valueLabel.Size = UDim2.new(0, 66, 0, 18)
 			valueLabel.ZIndex = 8
 			valueLabel.Parent = row
 
@@ -1606,7 +2204,6 @@ function Library.CreateWindow(config, ...)
 			fillGrad.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, COLOR_GREEN), ColorSequenceKeypoint.new(1, COLOR_PURPLE) })
 			fillGrad.Parent = fill
 
-			-- الدائرة (Knob) القابلة للسحب باللمس أو الماوس
 			local knob = Instance.new("Frame")
 			knob.BackgroundColor3 = Color3.new(1, 1, 1)
 			knob.Size = UDim2.new(0, 16, 0, 16)
@@ -1617,40 +2214,151 @@ function Library.CreateWindow(config, ...)
 			round(knob, UDim.new(1, 0))
 			stroke(knob, COLOR_PURPLE, 1.5, 0)
 
-			local value = default
-			local function updateVisual(v, animated)
-				local rel = (v - min) / math.max(max - min, 1e-6)
-				local info = animated and EASE_FAST or TweenInfo.new(0)
-				tween(fill, info, { Size = UDim2.new(rel, 0, 1, 0) })
-				tween(knob, info, { Position = UDim2.new(rel, 0, 0.5, 0) })
-				valueLabel.Text = tostring(math.floor(v + 0.5))
-			end
-			updateVisual(default, false)
+			local hit = Instance.new("TextButton")
+			hit.Text = ""
+			hit.AutoButtonColor = false
+			hit.BackgroundTransparency = 1
+			hit.Active = true
+			hit.Position = UDim2.new(0, 6, 0, 22)
+			hit.Size = UDim2.new(1, -12, 0, 28)
+			hit.ZIndex = 12
+			hit.Parent = row
 
-			makeSingleTouchDraggable(track, function(inputPos)
+			local value = default
+			local function updateVisual(v)
+				local rel = (v - min) / math.max(max - min, 1e-6)
+				fill.Size = UDim2.new(rel, 0, 1, 0)
+				knob.Position = UDim2.new(rel, 0, 0.5, 0)
+				valueLabel.Text = tostring(math.floor(v * 100 + 0.5) / 100) .. suffix
+			end
+			updateVisual(default)
+
+			local function fireCallback()
+				if callback then
+					task.spawn(function()
+						local ok, err = pcall(callback, value)
+						if not ok then warn("[ProUI Slider Error]", err) end
+					end)
+				end
+			end
+
+			makeSingleTouchDraggable(hit, function(inputPos)
 				local trackPos, trackWidth = track.AbsolutePosition.X, math.max(track.AbsoluteSize.X, 1)
 				local rel = math.clamp((inputPos.X - trackPos) / trackWidth, 0, 1)
 				local raw = min + (max - min) * rel
-				value = math.clamp(math.floor(raw / speed + 0.5) * speed, min, max)
-				updateVisual(value, true)
-				if callback then
-					local ok, err = pcall(callback, value)
-					if not ok then warn("[ProUI Slider Error]", err) end
-				end
-			end)
+				local newValue = math.clamp(math.floor(raw / speed + 0.5) * speed, min, max)
+				newValue = math.floor(newValue * 1e6 + 0.5) / 1e6
+				if newValue == value then return end
+				value = newValue
+				updateVisual(value)
+				fireCallback()
+			end, function() page.ScrollingEnabled = false end,
+			   function() page.ScrollingEnabled = true end)
 
-			return { Set = function(_, v) value = math.clamp(v, min, max); updateVisual(value, true) end, Get = function() return value end }
+			local obj = {
+				Set = function(_, v, silent)
+					value = math.clamp(tonumber(v) or min, min, max)
+					updateVisual(value)
+					if not silent then fireCallback() end
+				end,
+				Get = function() return value end,
+			}
+			return attachCommon(obj, row, flag)
 		end
 
 		----------------------------------------------------------
-		-- kind: "text" أو "number"
+		-- Progress: شريط تقدم (للعرض فقط)
+		----------------------------------------------------------
+		function Tab:CreateProgress(name, min, max, default)
+			local flag, suffix
+			if type(name) == "table" then
+				local o = name
+				min, max, default = pick(o, "Min"), pick(o, "Max"), pick(o, "Default", "Value")
+				flag, suffix = pick(o, "Flag"), pick(o, "Suffix")
+				name = pick(o, "Name", "Title", "Text")
+			end
+			name = tostring(name or "Progress")
+			min, max = tonumber(min) or 0, tonumber(max) or 100
+			default = math.clamp(tonumber(default) or min, min, max)
+
+			local row = Instance.new("Frame")
+			row.BackgroundColor3 = Color3.new(1, 1, 1)
+			row.BackgroundTransparency = 0.93
+			row.Size = UDim2.new(1, 0, 0, 46)
+			row.ZIndex = 7
+			row.Parent = page
+			round(row, UDim.new(0, 10))
+
+			local label = Instance.new("TextLabel")
+			label.BackgroundTransparency = 1
+			label.Text = name
+			label.Font = Enum.Font.Gotham
+			label.TextSize = 14
+			label.TextColor3 = Color3.new(1, 1, 1)
+			label.TextXAlignment = Enum.TextXAlignment.Left
+			label.Position = UDim2.new(0, 12, 0, 6)
+			label.Size = UDim2.new(1, -80, 0, 18)
+			label.ZIndex = 8
+			label.Parent = row
+
+			local valueLabel = Instance.new("TextLabel")
+			valueLabel.BackgroundTransparency = 1
+			valueLabel.Font = Enum.Font.GothamBold
+			valueLabel.TextSize = 13
+			valueLabel.TextColor3 = accent
+			valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+			valueLabel.Position = UDim2.new(1, -68, 0, 6)
+			valueLabel.Size = UDim2.new(0, 56, 0, 18)
+			valueLabel.ZIndex = 8
+			valueLabel.Parent = row
+
+			local track = Instance.new("Frame")
+			track.BackgroundColor3 = Color3.new(1, 1, 1)
+			track.BackgroundTransparency = 0.85
+			track.Position = UDim2.new(0, 12, 0, 30)
+			track.Size = UDim2.new(1, -24, 0, 8)
+			track.ZIndex = 8
+			track.Parent = row
+			round(track, UDim.new(1, 0))
+
+			local fill = Instance.new("Frame")
+			fill.BackgroundColor3 = COLOR_GREEN
+			fill.BorderSizePixel = 0
+			fill.Size = UDim2.new(0, 0, 1, 0)
+			fill.ZIndex = 9
+			fill.Parent = track
+			round(fill, UDim.new(1, 0))
+			local fillGrad = Instance.new("UIGradient")
+			fillGrad.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, COLOR_GREEN), ColorSequenceKeypoint.new(1, COLOR_PURPLE) })
+			fillGrad.Parent = fill
+
+			local value = default
+			local function show(animated)
+				local rel = (value - min) / math.max(max - min, 1e-6)
+				tween(fill, animated and EASE_SOFT or TweenInfo.new(0), { Size = UDim2.new(rel, 0, 1, 0) })
+				valueLabel.Text = tostring(math.floor(rel * 100 + 0.5)) .. "%"
+			end
+			show(false)
+
+			local obj = {
+				Set = function(_, v) value = math.clamp(tonumber(v) or min, min, max); show(true) end,
+				Get = function() return value end,
+			}
+			return attachCommon(obj, row, flag)
+		end
+
+		----------------------------------------------------------
+		-- Textbox
+		----------------------------------------------------------
 		function Tab:CreateTextbox(name, placeholder, kind, callback)
+			local flag
 			if type(name) == "table" then
 				local o = name
 				name, placeholder = pick(o, "Name", "Title", "Text"), pick(o, "Placeholder", "Default", "Desc")
 				kind, callback = pick(o, "Type", "Kind"), pick(o, "Callback", "Function", "Func")
+				flag = pick(o, "Flag")
 				if pick(o, "Numeric", "Number") then kind = "number" end
-			elseif type(kind) == "function" then -- (name, placeholder, callback)
+			elseif type(kind) == "function" then
 				callback, kind = kind, "text"
 			end
 			name = tostring(name or "Textbox")
@@ -1701,25 +2409,51 @@ function Library.CreateWindow(config, ...)
 				end)
 			end
 
-			box.FocusLost:Connect(function(enterPressed)
+			local function fire(enterPressed)
 				if not callback then return end
 				local val = box.Text
 				if kind == "number" then val = tonumber(val) or 0 end
 				local ok, err = pcall(callback, val, enterPressed)
 				if not ok then warn("[ProUI Textbox Error]", err) end
-			end)
+			end
+			box.FocusLost:Connect(fire)
 
-			return { Set = function(_, v) box.Text = tostring(v) end, Get = function() return box.Text end }
+			local obj = {
+				Set = function(_, v, silent) box.Text = tostring(v); if not silent then fire(false) end end,
+				Get = function() if kind == "number" then return tonumber(box.Text) or 0 end return box.Text end,
+			}
+			return attachCommon(obj, row, flag)
 		end
 
 		----------------------------------------------------------
-		function Tab:CreateDropdown(name, options, callback)
+		-- Dropdown: عادي أو متعدد الاختيار (Multi = true)
+		--   CreateDropdown(name, options, callback)
+		--   CreateDropdown(name, options, callback, true, {"A","B"})
+		--   CreateDropdown({Name=, Options=, Multi=true, Default=, Callback=, Flag=})
+		----------------------------------------------------------
+		function Tab:CreateDropdown(name, options, callback, multi, default)
+			local flag
 			if type(name) == "table" then
 				local o = name
 				name, options, callback = pick(o, "Name", "Title", "Text"), pick(o, "Options", "Values", "List"), pick(o, "Callback", "Function", "Func")
+				multi, default, flag = pick(o, "Multi", "Multiple"), pick(o, "Default", "Value"), pick(o, "Flag")
 			end
 			name = tostring(name or "Dropdown")
 			options = options or {}
+			multi = multi == true
+
+			local selectedSingle = nil
+			local selectedMulti = {}
+			if multi then
+				if type(default) == "table" then
+					for _, v in ipairs(default) do selectedMulti[v] = true end
+				elseif default ~= nil then
+					selectedMulti[default] = true
+				end
+			else
+				selectedSingle = default ~= nil and default or options[1]
+			end
+
 			local wrap = Instance.new("Frame")
 			wrap.BackgroundTransparency = 1
 			wrap.Size = UDim2.new(1, 0, 0, 40)
@@ -1751,18 +2485,21 @@ function Library.CreateWindow(config, ...)
 
 			local valueLabel = Instance.new("TextLabel")
 			valueLabel.BackgroundTransparency = 1
-			valueLabel.Text = (options[1] or "—") .. "  ▾"
 			valueLabel.Font = Enum.Font.GothamMedium
 			valueLabel.TextSize = 13
 			valueLabel.TextColor3 = accent
 			valueLabel.TextXAlignment = Enum.TextXAlignment.Right
-			valueLabel.Position = UDim2.new(0.45, 0, 0, 0)
-			valueLabel.Size = UDim2.new(0.55, -12, 1, 0)
+			valueLabel.TextTruncate = Enum.TextTruncate.AtEnd
+			valueLabel.Position = UDim2.new(0.4, 0, 0, 0)
+			valueLabel.Size = UDim2.new(0.6, -12, 1, 0)
 			valueLabel.ZIndex = 8
 			valueLabel.Parent = header
 
-			local list = Instance.new("Frame")
+			local list = Instance.new("ScrollingFrame")
 			list.BackgroundTransparency = 1
+			list.BorderSizePixel = 0
+			list.ScrollBarThickness = 2
+			list.CanvasSize = UDim2.new(0, 0, 0, 0)
 			list.Position = UDim2.new(0, 0, 0, 44)
 			list.Size = UDim2.new(1, 0, 0, 0)
 			list.ZIndex = 7
@@ -1772,54 +2509,353 @@ function Library.CreateWindow(config, ...)
 			listLayout.SortOrder = Enum.SortOrder.LayoutOrder
 			listLayout.Parent = list
 
+			local optionButtons = {}
+
+			local function getMultiList()
+				local result = {}
+				for _, opt in ipairs(options) do
+					if selectedMulti[opt] then table.insert(result, opt) end
+				end
+				return result
+			end
+
+			local function refreshVisual()
+				local text
+				if multi then
+					local names = getMultiList()
+					if #names == 0 then
+						text = "—"
+					else
+						text = table.concat(names, ", ")
+						if #text > 20 then text = tostring(#names) .. " ✓" end
+					end
+				else
+					text = selectedSingle ~= nil and tostring(selectedSingle) or "—"
+				end
+				valueLabel.Text = text .. "  ▾"
+				for _, entry in ipairs(optionButtons) do
+					local on
+					if multi then on = selectedMulti[entry.opt] == true else on = selectedSingle == entry.opt end
+					entry.btn.BackgroundColor3 = on and accent or Color3.new(1, 1, 1)
+					entry.btn.BackgroundTransparency = on and 0.7 or 0.92
+					entry.btn.Text = ((multi and on) and "✓  " or "") .. tostring(entry.opt)
+				end
+			end
+
 			local expanded = false
+			local function listHeight() return math.min(#options * 32, 160) end
+			local function applyExpansion(animated)
+				local h = expanded and listHeight() or 0
+				local info = animated and EASE_SOFT or TweenInfo.new(0)
+				tween(wrap, info, { Size = UDim2.new(1, 0, 0, 40 + (expanded and (4 + h) or 0)) })
+				tween(list, info, { Size = UDim2.new(1, 0, 0, h) })
+			end
+
+			local function fireCallback()
+				if not callback then return end
+				local arg = multi and getMultiList() or selectedSingle
+				local ok, err = pcall(callback, arg)
+				if not ok then warn("[ProUI Dropdown Error]", err) end
+			end
+
+			local function buildOptions()
+				for _, c in ipairs(list:GetChildren()) do
+					if c:IsA("TextButton") then c:Destroy() end
+				end
+				optionButtons = {}
+				for i, opt in ipairs(options) do
+					local optBtn = Instance.new("TextButton")
+					optBtn.Text = tostring(opt)
+					optBtn.Font = Enum.Font.Gotham
+					optBtn.TextSize = 13
+					optBtn.TextColor3 = Color3.new(1, 1, 1)
+					optBtn.AutoButtonColor = false
+					optBtn.BackgroundColor3 = Color3.new(1, 1, 1)
+					optBtn.BackgroundTransparency = 0.92
+					optBtn.Size = UDim2.new(1, 0, 0, 28)
+					optBtn.LayoutOrder = i
+					optBtn.ZIndex = 8
+					optBtn.Parent = list
+					round(optBtn, UDim.new(0, 8))
+					applyPressEffect(optBtn, 0.96)
+					table.insert(optionButtons, { btn = optBtn, opt = opt })
+
+					local function choose()
+						if multi then
+							selectedMulti[opt] = not selectedMulti[opt] or nil
+							refreshVisual()
+							fireCallback()
+						else
+							selectedSingle = opt
+							refreshVisual()
+							expanded = false
+							applyExpansion(true)
+							fireCallback()
+						end
+					end
+					optBtn.MouseButton1Click:Connect(choose)
+					optBtn.TouchTap:Connect(choose)
+				end
+				list.CanvasSize = UDim2.new(0, 0, 0, #options * 32)
+				refreshVisual()
+			end
+			buildOptions()
+
 			local function toggleList()
 				expanded = not expanded
-				local targetH = expanded and (#options * 32) or 0
-				tween(wrap, EASE_SOFT, { Size = UDim2.new(1, 0, 0, 40 + (expanded and (4 + targetH) or 0)) })
-				tween(list, EASE_SOFT, { Size = UDim2.new(1, 0, 0, targetH) })
+				applyExpansion(true)
 			end
 			header.MouseButton1Click:Connect(toggleList)
 			header.TouchTap:Connect(toggleList)
 			applyPressEffect(header, 0.97)
 
-			for i, opt in ipairs(options) do
-				local optBtn = Instance.new("TextButton")
-				optBtn.Text = opt
-				optBtn.Font = Enum.Font.Gotham
-				optBtn.TextSize = 13
-				optBtn.TextColor3 = Color3.new(1, 1, 1)
-				optBtn.AutoButtonColor = false
-				optBtn.BackgroundColor3 = Color3.new(1, 1, 1)
-				optBtn.BackgroundTransparency = 0.92
-				optBtn.Size = UDim2.new(1, 0, 0, 28)
-				optBtn.LayoutOrder = i
-				optBtn.ZIndex = 8
-				optBtn.Parent = list
-				round(optBtn, UDim.new(0, 8))
-				applyPressEffect(optBtn, 0.96)
-
-				local function choose()
-					valueLabel.Text = opt .. "  ▾"
-					toggleList()
-					if callback then
-						local ok, err = pcall(callback, opt)
-						if not ok then warn("[ProUI Dropdown Error]", err) end
+			local obj = {
+				Get = function()
+					if multi then return getMultiList() end
+					return selectedSingle
+				end,
+				Set = function(_, v, silent)
+					if multi then
+						selectedMulti = {}
+						if type(v) == "table" then
+							for _, x in ipairs(v) do selectedMulti[x] = true end
+						elseif v ~= nil then
+							selectedMulti[v] = true
+						end
+					else
+						selectedSingle = v
 					end
-				end
-				optBtn.MouseButton1Click:Connect(choose)
-				optBtn.TouchTap:Connect(choose)
-			end
+					refreshVisual()
+					if not silent then fireCallback() end
+				end,
+				Refresh = function(_, newOptions)
+					options = newOptions or {}
+					if multi then
+						for k in pairs(selectedMulti) do
+							if not table.find(options, k) then selectedMulti[k] = nil end
+						end
+					elseif selectedSingle == nil or not table.find(options, selectedSingle) then
+						selectedSingle = options[1]
+					end
+					buildOptions()
+					applyExpansion(false)
+				end,
+			}
+			return attachCommon(obj, wrap, flag)
+		end
 
-			return { Get = function() return valueLabel.Text:gsub("  ▾", "") end }
+		function Tab:CreateMultiDropdown(name, options, callback, default)
+			if type(name) == "table" then
+				local o = name
+				local copy = {}
+				for k, v in pairs(o) do copy[k] = v end
+				copy.Multi = true
+				return Tab:CreateDropdown(copy)
+			end
+			return Tab:CreateDropdown(name, options, callback, true, default)
 		end
 
 		----------------------------------------------------------
-		-- منتقي ألوان بأسلوب WindUI (مربع تشبع/قيمة + شريط تدرج + هيكس + تأكيد/إلغاء)
+		-- Keybind: اضغط الزر ثم اضغط أي مفتاح (Esc إلغاء | Backspace مسح)
+		----------------------------------------------------------
+		function Tab:CreateKeybind(name, default, callback, changed)
+			local flag
+			if type(name) == "table" then
+				local o = name
+				name, default = pick(o, "Name", "Title", "Text"), pick(o, "Default", "Key", "Value")
+				callback, changed = pick(o, "Callback", "Function", "Func"), pick(o, "Changed", "OnChange")
+				flag = pick(o, "Flag")
+			elseif type(default) == "function" then
+				callback, changed, default = default, callback, nil
+			end
+			name = tostring(name or "Keybind")
+			local key = toKeyCode(default)
+
+			local row = Instance.new("Frame")
+			row.BackgroundColor3 = Color3.new(1, 1, 1)
+			row.BackgroundTransparency = 0.93
+			row.Size = UDim2.new(1, 0, 0, 40)
+			row.ZIndex = 7
+			row.Parent = page
+			round(row, UDim.new(0, 10))
+
+			local label = Instance.new("TextLabel")
+			label.BackgroundTransparency = 1
+			label.Text = name
+			label.Font = Enum.Font.Gotham
+			label.TextSize = 14
+			label.TextColor3 = Color3.new(1, 1, 1)
+			label.TextXAlignment = Enum.TextXAlignment.Left
+			label.Position = UDim2.new(0, 12, 0, 0)
+			label.Size = UDim2.new(1, -110, 1, 0)
+			label.ZIndex = 8
+			label.Parent = row
+
+			local keyBtn = Instance.new("TextButton")
+			keyBtn.AutoButtonColor = false
+			keyBtn.Font = Enum.Font.GothamBold
+			keyBtn.TextSize = 12
+			keyBtn.TextColor3 = Color3.new(1, 1, 1)
+			keyBtn.BackgroundColor3 = Color3.new(1, 1, 1)
+			keyBtn.BackgroundTransparency = 0.88
+			keyBtn.AnchorPoint = Vector2.new(1, 0.5)
+			keyBtn.Position = UDim2.new(1, -12, 0.5, 0)
+			keyBtn.Size = UDim2.new(0, 84, 0, 26)
+			keyBtn.ZIndex = 8
+			keyBtn.Parent = row
+			round(keyBtn, UDim.new(0, 8))
+			stroke(keyBtn, accent, 1, 0.6)
+			applyPressEffect(keyBtn, 0.93)
+
+			local listening = false
+			local function show()
+				keyBtn.Text = listening and "..." or (key and key.Name or T("none"))
+			end
+			show()
+
+			local function toggleListening()
+				listening = not listening
+				show()
+			end
+			keyBtn.MouseButton1Click:Connect(toggleListening)
+			keyBtn.TouchTap:Connect(toggleListening)
+
+			local conn = UserInputService.InputBegan:Connect(function(input, gp)
+				if listening then
+					if input.UserInputType == Enum.UserInputType.Keyboard then
+						listening = false
+						if input.KeyCode == Enum.KeyCode.Backspace then
+							key = nil
+						elseif input.KeyCode ~= Enum.KeyCode.Escape then
+							key = input.KeyCode
+						end
+						show()
+						if changed then pcall(changed, key) end
+					end
+					return
+				end
+				if gp or not key then return end
+				if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == key then
+					if callback then
+						local ok, err = pcall(callback, key)
+						if not ok then warn("[ProUI Keybind Error]", err) end
+					end
+				end
+			end)
+			row.Destroying:Connect(function() conn:Disconnect() end)
+
+			local obj = {
+				Get = function() return key end,
+				Set = function(_, k)
+					key = toKeyCode(k)
+					show()
+					if changed then pcall(changed, key) end
+				end,
+			}
+			return attachCommon(obj, row, flag)
+		end
+
+		----------------------------------------------------------
+		-- Code: صندوق كود مع زر نسخ
+		----------------------------------------------------------
+		function Tab:CreateCode(title, code)
+			if type(title) == "table" then
+				local o = title
+				title, code = pick(o, "Title", "Name"), pick(o, "Code", "Text", "Content")
+			end
+			title = tostring(title or "Code")
+			code = tostring(code or "")
+
+			local row = Instance.new("Frame")
+			row.BackgroundColor3 = COLOR_BLACK
+			row.BackgroundTransparency = 0.35
+			row.Size = UDim2.new(1, 0, 0, 0)
+			row.AutomaticSize = Enum.AutomaticSize.Y
+			row.ZIndex = 7
+			row.Parent = page
+			round(row, UDim.new(0, 10))
+			stroke(row, Color3.new(1, 1, 1), 1, 0.85)
+
+			local pad = Instance.new("UIPadding")
+			pad.PaddingLeft, pad.PaddingRight = UDim.new(0, 12), UDim.new(0, 12)
+			pad.PaddingTop, pad.PaddingBottom = UDim.new(0, 10), UDim.new(0, 10)
+			pad.Parent = row
+			local lay = Instance.new("UIListLayout")
+			lay.Padding = UDim.new(0, 6)
+			lay.SortOrder = Enum.SortOrder.LayoutOrder
+			lay.Parent = row
+
+			local header = Instance.new("Frame")
+			header.BackgroundTransparency = 1
+			header.Size = UDim2.new(1, 0, 0, 22)
+			header.LayoutOrder = 1
+			header.ZIndex = 8
+			header.Parent = row
+
+			local titleLbl = Instance.new("TextLabel")
+			titleLbl.BackgroundTransparency = 1
+			titleLbl.Text = title
+			titleLbl.Font = Enum.Font.GothamBold
+			titleLbl.TextSize = 13
+			titleLbl.TextColor3 = Color3.new(1, 1, 1)
+			titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+			titleLbl.Size = UDim2.new(1, -64, 1, 0)
+			titleLbl.ZIndex = 9
+			titleLbl.Parent = header
+
+			local copyBtn = Instance.new("TextButton")
+			copyBtn.Text = T("copy")
+			copyBtn.Font = Enum.Font.GothamBold
+			copyBtn.TextSize = 11
+			copyBtn.TextColor3 = Color3.new(1, 1, 1)
+			copyBtn.AutoButtonColor = false
+			copyBtn.BackgroundColor3 = COLOR_BLUE
+			copyBtn.AnchorPoint = Vector2.new(1, 0.5)
+			copyBtn.Position = UDim2.new(1, 0, 0.5, 0)
+			copyBtn.Size = UDim2.new(0, 56, 0, 20)
+			copyBtn.ZIndex = 9
+			copyBtn.Parent = header
+			round(copyBtn, UDim.new(0, 6))
+			applyPressEffect(copyBtn, 0.9)
+
+			local codeLbl = Instance.new("TextLabel")
+			codeLbl.BackgroundTransparency = 1
+			codeLbl.Text = code
+			codeLbl.Font = Enum.Font.Code
+			codeLbl.TextSize = 12
+			codeLbl.TextColor3 = Color3.fromRGB(190, 255, 215)
+			codeLbl.TextXAlignment = Enum.TextXAlignment.Left
+			codeLbl.TextYAlignment = Enum.TextYAlignment.Top
+			codeLbl.TextWrapped = true
+			codeLbl.Size = UDim2.new(1, 0, 0, 0)
+			codeLbl.AutomaticSize = Enum.AutomaticSize.Y
+			codeLbl.LayoutOrder = 2
+			codeLbl.ZIndex = 8
+			codeLbl.Parent = row
+
+			local function copy()
+				local fn = setclipboard or toclipboard
+				if fn then pcall(fn, codeLbl.Text) end
+				Library.Notify(T("copied"), "", nil, 2, "success")
+			end
+			copyBtn.MouseButton1Click:Connect(copy)
+			copyBtn.TouchTap:Connect(copy)
+
+			return attachCommon({
+				SetCode = function(_, c) codeLbl.Text = tostring(c) end,
+				Get = function() return codeLbl.Text end,
+			}, row)
+		end
+
+		----------------------------------------------------------
+		-- ColorPicker
+		----------------------------------------------------------
 		function Tab:CreateColorPicker(name, defaultColor, callback)
+			local flag
 			if type(name) == "table" then
 				local o = name
 				name, defaultColor, callback = pick(o, "Name", "Title", "Text"), pick(o, "Default", "Color", "Value"), pick(o, "Callback", "Function", "Func")
+				flag = pick(o, "Flag")
 			end
 			name = tostring(name or "Color")
 			defaultColor = resolveColor(defaultColor, COLOR_GREEN)
@@ -1856,7 +2892,6 @@ function Library.CreateWindow(config, ...)
 			stroke(swatch, Color3.new(1, 1, 1), 1, 0.5)
 			applyPressEffect(swatch, 0.9)
 
-			-- نافذة الاختيار المنبثقة (فوق الواجهة كلها)
 			local POPUP_W, POPUP_H = 250, 250
 			local popup = Instance.new("Frame")
 			popup.BackgroundColor3 = COLOR_DARK
@@ -1869,7 +2904,6 @@ function Library.CreateWindow(config, ...)
 			round(popup, UDim.new(0, 14))
 			stroke(popup, COLOR_PURPLE, 1, 0.3)
 
-			-- مقبض سحب مستقل: يحرك نافذة الألوان فقط، الواجهة اللي خلفها ما تتحرك
 			local pickerHandle = Instance.new("Frame")
 			pickerHandle.BackgroundColor3 = Color3.new(1, 1, 1)
 			pickerHandle.BackgroundTransparency = 0.93
@@ -2060,19 +3094,36 @@ function Library.CreateWindow(config, ...)
 			cancelBtn.MouseButton1Click:Connect(closePicker)
 			cancelBtn.TouchTap:Connect(closePicker)
 
-			local function confirmPick()
-				local c = currentColor()
-				swatch.BackgroundColor3 = c
-				closePicker()
+			local function fireCallback(c)
 				if callback then
 					local ok, err = pcall(callback, c)
 					if not ok then warn("[ProUI ColorPicker Error]", err) end
 				end
 			end
+
+			local function confirmPick()
+				local c = currentColor()
+				swatch.BackgroundColor3 = c
+				closePicker()
+				fireCallback(c)
+			end
 			startBtn.MouseButton1Click:Connect(confirmPick)
 			startBtn.TouchTap:Connect(confirmPick)
 
-			return { Get = function() return swatch.BackgroundColor3 end }
+			local obj = {
+				Get = function() return swatch.BackgroundColor3 end,
+				Set = function(_, c, silent)
+					c = resolveColor(c, nil)
+					if not c then return end
+					h, s, v = Color3.toHSV(c)
+					svKnob.Position = UDim2.new(s, 0, 1 - v, 0)
+					hueKnob.Position = UDim2.new(0.5, 0, h, 0)
+					refreshUI()
+					swatch.BackgroundColor3 = c
+					if not silent then fireCallback(c) end
+				end,
+			}
+			return attachCommon(obj, row, flag)
 		end
 
 		-- أسماء بديلة (بأسلوب WindUI / Rayfield)
@@ -2080,16 +3131,18 @@ function Library.CreateWindow(config, ...)
 		Tab.Input, Tab.Textbox, Tab.Dropdown = Tab.CreateTextbox, Tab.CreateTextbox, Tab.CreateDropdown
 		Tab.Colorpicker, Tab.ColorPicker = Tab.CreateColorPicker, Tab.CreateColorPicker
 		Tab.Label, Tab.Note = Tab.CreateLabel, Tab.CreateNote
+		Tab.Section, Tab.Divider, Tab.Paragraph = Tab.CreateSection, Tab.CreateDivider, Tab.CreateParagraph
+		Tab.Keybind, Tab.Progress, Tab.Code = Tab.CreateKeybind, Tab.CreateProgress, Tab.CreateCode
+		Tab.MultiDropdown = Tab.CreateMultiDropdown
 
 		Window.Tabs[name] = Tab
 		return Tab
 	end
 	Window.Tab = Window.CreateTab
 
-	-- إنشاء عنصر داخل تبويب عن طريق اسم التبويب (أو كائن التبويب):
+	-- إنشاء عنصر داخل تبويب عن طريق اسم التبويب:
 	--   Window:CreateButton("اسم التبويب", "اسم الزر", "وصف", function() end)
-	--   Window:CreateButton({Tab = "اسم التبويب", Name = "...", Callback = function() end})
-	for _, kind in ipairs({ "Button", "Toggle", "Slider", "Textbox", "Dropdown", "ColorPicker", "Label", "Note" }) do
+	for _, kind in ipairs(ELEMENT_KINDS) do
 		Window["Create" .. kind] = function(self, tab, ...)
 			local args = { ... }
 			if type(tab) == "table" and not tab.Page then
@@ -2106,60 +3159,96 @@ function Library.CreateWindow(config, ...)
 		end
 	end
 
+	-- دوال عامة للنافذة
+	function Window:Dialog(cfg) return Library.Dialog(cfg) end
+	function Window:Notify(...) return Library.Notify(...) end
+	function Window:SetTitle(t) titleLabel.Text = tostring(t) end
+	function Window:SetSubTitle(t) if subLabel then subLabel.Text = tostring(t) end end
+	function Window:SetToggleKey(k) toggleKey = toKeyCode(k) end
+	function Window:SaveConfig(n) return Library.SaveConfig(n) end
+	function Window:LoadConfig(n) return Library.LoadConfig(n) end
+	function Window:ListConfigs() return Library.ListConfigs() end
+
 	Window.Open, Window.Close, Window.Minimize, Window.Delete = openUI, hideUI, toggleMinimize, deleteEverything
 
 	-- مراجع جاهزة لاستخدامها مع Library.ApplyGradient(Window.XXX, {...})
-	Window.OpenButton  = openButton         -- تدرج على زر Open
-	Window.Frame       = mainFrame          -- تدرج على جسم الواجهة
-	Window.FrameStroke = mainStroke         -- تدرج على حواف الواجهة
+	Window.OpenButton  = openButton
+	Window.Frame       = mainFrame
+	Window.FrameStroke = mainStroke
 
 	----------------------------------------------------------
-	-- تشغيل السبلاش الترحيبي ثم فتح الواجهة تلقائياً
+	-- بدء التشغيل: النافذة مستقلة عن الـ Splash.
+	--   افتراضياً تفتح مباشرة. config.AutoOpen = false => يظهر زر Open فقط.
+	--   (توافق قديم: لو مررت config.Splash يشغّله ثم يفتح)
 	----------------------------------------------------------
-	openButton.Visible = false
-	Library.PlaySplash(config.Splash, function() openUI() end)
+	if config.Splash then
+		openButton.Visible = false
+		Library.Splash(config.Splash, function() openUI() end)
+	elseif config.AutoOpen == false then
+		openButton.Visible = true
+	else
+		openButton.Visible = false
+		openUI()
+	end
 
 	return Window
 end
 
--- نسخة احتياطية عالمية: لو حطيت كود إنشاء نافذتك تحت سطر return بنفس
--- الملف (بدل تنفيذ/سكربت منفصل)، هذا السطر ما يشتغل بعد return أبداً —
--- بس تقدر توصل للمكتبة من أي تنفيذ (Execute) ثاني عن طريق:
---     local Library = getgenv().ProUILibrary
 pcall(function()
 	if getgenv then
 		getgenv().ProUILibrary = Library
 	end
 end)
 
--- ⚠️ توقف هنا! أي كود تكتبه تحت سطر "return Library" التالي بنفس
--- الملف لن يعمل أبداً (return ينهي تنفيذ السكربت فوراً بهذه النقطة).
--- اكتب كود CreateWindow / CreateTab / CreateButton في تنفيذ (Execute)
--- ثاني منفصل بعد تشغيل هذا السكربت، أو استخدم getgenv() بالأعلى.
+-- أي كود CreateWindow تكتبه تحت return ما يشتغل؛ شغّله بتنفيذ ثاني
+-- واستخدم: local Library = getgenv().ProUILibrary
 return Library
 
 --[[
-	مثال استخدام (بسكربت منفصل بعد loadstring):
+	مثال استخدام (بسكربت منفصل بعد تشغيل المكتبة):
 
-	local Library = loadstring(game:HttpGet("..."))()
+	local Library = getgenv().ProUILibrary
 
+	-- 1) الشعار (منفصل): ينتظر يخلص ثم نبني النافذة
+	local splash = Library.Splash({
+		Text = "اسم شعارك", Font = "Bangers", Color = "Cyan",
+		BackgroundColor = "Dark", Size = 200, TextSize = 40,
+	})
+	splash:Wait()
+
+	-- 2) النافذة
 	local Window = Library.CreateWindow({
-		Title = "الواجهة الاحترافية",
-		Icon = "home",        -- اسم أيقونة Lucide، تطلع يسار العنوان
-		Theme = "Green",
-		Size = { X = 586, Y = 339 },
+		Title = "الواجهة الاحترافية", Icon = "home", Theme = "Green",
+		ToggleKey = Enum.KeyCode.RightShift,
+	})
+	Window:Tag({ Title = "v2.0", Color = "Blue" })
+
+	Window:Section("الرئيسي")
+	local Main = Window:CreateTab("الرئيسية", "home")
+	Main:CreateSection("عناصر أساسية")
+	Main:CreateButton("زر", "وصف", function() Library.Notify("تم", "ضغطت", nil, 3, "success") end)
+	Main:CreateToggle({ Name = "تفعيل", Default = false, Flag = "enabled", Callback = print })
+	Main:CreateToggle({ Name = "مربع", Type = "Checkbox", Callback = print })
+	Main:CreateSlider("السرعة", 0, 100, 16, 1, print)
+	Main:CreateDropdown("قائمة", { "A", "B", "C" }, print)
+	Main:CreateMultiDropdown("متعدد", { "X", "Y", "Z" }, print, { "X" })
+	Main:CreateKeybind("مفتاح", Enum.KeyCode.F, function() print("F") end)
+	Main:CreateNote("ملاحظة زرقاء", "Blue")
+	Main:CreateNote("ملاحظة سوداء", "Dark")
+	Main:CreateLabel("نص بسيط")
+	Main:CreateParagraph("عنوان", "نص طويل يوضح شي معين", "info")
+	Main:CreateProgress("التحميل", 0, 100, 40)
+	Main:CreateCode("مثال", "print('hello')")
+
+	Window:Dialog({
+		Title = "تنبيه", Content = "هل تريد المتابعة؟", Icon = "info",
+		Buttons = {
+			{ Title = "نعم", Variant = "Primary", Callback = function() end },
+			{ Title = "لا", Variant = "Secondary" },
+		},
 	})
 
-	local MainTab = Window:CreateTab("الرئيسية", "settings") -- أيقونة Lucide بالاسم
-	MainTab:CreateLabel("هذا نص بسيط بدون خلفية")
-	MainTab:CreateNote("هذه ملاحظة غامقة", "Dark")
-	MainTab:CreateNote("هذه ملاحظة زرقاء معلوماتية", "Blue")
-
-	MainTab:CreateButton("زر تجريبي", "يرسل إشعار عند الضغط", function()
-		Library.Notify("تم", "تم الضغط على الزر", "وصف إضافي هنا", 3)
-	end)
-
-	-- نظام التدرج العام
-	Library.ApplyGradient(Window.OpenButton, { Colors = {"Green", "Purple"}, Speed = 5, Intensity = 1 })
-	Library.ApplyGradient(Window.FrameStroke, { Colors = {"Blue", "Cyan"}, Speed = 8, Intensity = 0.6 })
-]] 
+	Window:SaveConfig("default")   -- يحفظ كل العناصر اللي لها Flag
+	Window:LoadConfig("default")
+]]
+ 
